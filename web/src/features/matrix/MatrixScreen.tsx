@@ -29,7 +29,7 @@ export function MatrixScreen() {
   }
 
   return (
-    <Window title="priorities">
+    <Window title="Priorities">
       <div className="matrix">
         {cells.map((cell) => (
           <section

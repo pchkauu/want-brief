@@ -52,7 +52,7 @@ export function SettingsScreen() {
     mutationFn: () =>
       api.createProject({
         name: projectName,
-        color: '#4C4CFF',
+        color: '#5C50FF',
         targetHoursWeek: Number(hours) || 0,
       }),
     onSuccess: () => {
@@ -70,7 +70,7 @@ export function SettingsScreen() {
   }
 
   return (
-    <Window title="settings">
+    <Window title="Sources">
       {error ? <p className="error">{error}</p> : null}
       <h3>Sources</h3>
       <ul className="list dense">

@@ -26,14 +26,14 @@ export function TrackScreen() {
   const runningByItem = new Map((intervals.data ?? []).map((row) => [row.itemId, row]))
 
   return (
-    <Window title="focus.exe">
+    <Window title="Focus">
       <p className="muted">Parallel timers allowed. Each clock counts full time on its task.</p>
       <ul className="list dense">
         {(items.data ?? []).map((item) => {
           const running = runningByItem.get(item.id)
           return (
             <li key={item.id}>
-              <i className="dot" style={{ background: item.kind === 'life' ? '#7C8CFF' : 'var(--accent)' }} />
+              <i className="dot" style={{ background: 'var(--accent)' }} />
               <div className="grow">
                 <strong>{item.title}</strong>
                 <small>

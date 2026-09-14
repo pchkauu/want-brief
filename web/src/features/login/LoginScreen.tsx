@@ -23,7 +23,7 @@ export function LoginScreen() {
 
   return (
     <div className="login-stage">
-      <Window title="focus.exe">
+      <Window title="Welcome back">
         <form
           className="stack"
           onSubmit={(event) => {
@@ -31,9 +31,9 @@ export function LoginScreen() {
             void submit()
           }}
         >
-          <img src="/logo.png" alt="Want Brief" width={64} height={64} />
+          <img src="/logo.png" alt="Want Brief" width={56} height={56} />
           <h2>Want Brief</h2>
-          <p className="muted">small briefs, big progress</p>
+          <p className="muted">Small briefs, big progress.</p>
           <label>
             Password
             <input

@@ -8,7 +8,7 @@ export function LoadScreen() {
   const report = load.data
   if (!report) {
     return (
-      <Window title="analytics">
+      <Window title="Load">
         <p className="muted">Loading load report…</p>
       </Window>
     )
@@ -18,7 +18,7 @@ export function LoadScreen() {
   const ranked = [...report.byItem].sort((a, b) => b.allocatedSeconds - a.allocatedSeconds)
 
   return (
-    <Window title="analytics">
+    <Window title="Load">
       <div className="stats">
         <article>
           <small>Allocated</small>
@@ -36,33 +36,37 @@ export function LoadScreen() {
           <span>last 7 days</span>
         </article>
       </div>
-      <h3>Projects</h3>
-      <ul className="bars">
-        {report.byProject.map((row) => (
-          <li key={row.projectId ?? row.name}>
-            <span>{row.name}</span>
-            <b style={{ width: `${(row.allocatedSeconds / max) * 100}%`, background: row.color }} />
-            <small>
-              {hours(row.allocatedSeconds)}
-              {row.targetHoursWeek ? ` / ${row.targetHoursWeek}h plan` : ''}
-            </small>
-          </li>
-        ))}
-      </ul>
-      <h3>Where time went</h3>
-      <ol className="list">
-        {ranked.slice(0, 12).map((row) => (
-          <li key={row.itemId}>
-            <div className="grow">
-              <strong>{row.title}</strong>
+      <section className="panel">
+        <h3>Projects</h3>
+        <ul className="bars">
+          {report.byProject.map((row) => (
+            <li key={row.projectId ?? row.name}>
+              <span>{row.name}</span>
+              <b style={{ width: `${(row.allocatedSeconds / max) * 100}%`, background: row.color }} />
               <small>
-                {row.kind} · {row.projectName || 'unassigned'}
+                {hours(row.allocatedSeconds)}
+                {row.targetHoursWeek ? ` / ${row.targetHoursWeek}h plan` : ''}
               </small>
-            </div>
-            <span className="mono">{hours(row.allocatedSeconds)}</span>
-          </li>
-        ))}
-      </ol>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="panel">
+        <h3>Where time went</h3>
+        <ol className="list">
+          {ranked.slice(0, 12).map((row) => (
+            <li key={row.itemId}>
+              <div className="grow">
+                <strong>{row.title}</strong>
+                <small>
+                  {row.kind} · {row.projectName || 'unassigned'}
+                </small>
+              </div>
+              <span className="mono">{hours(row.allocatedSeconds)}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
     </Window>
   )
 }

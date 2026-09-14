@@ -19,15 +19,32 @@ export function TodayScreen() {
     .filter((item) => item.urgent && item.important)
     .slice(0, 6)
   const running = intervals.data ?? []
+  const lead = running[0]
+  const leadItem = (items.data ?? []).find((row) => row.id === lead?.itemId)
 
   return (
-    <Window title="today.txt">
+    <Window title="Today">
+      <section className="hero">
+        <div>
+          <small>{running.length ? 'Running now' : 'Focus'}</small>
+          <strong className="mono">
+            {lead ? elapsed(lead.startedAt) : `${focus.length}`}
+          </strong>
+        </div>
+        <p>
+          {lead
+            ? leadItem?.title ?? 'Timer on'
+            : focus.length
+              ? 'Open items in Do. Start a timer when ready.'
+              : 'Nothing in Do. Open Priorities and pick the next brief.'}
+        </p>
+      </section>
       <div className="grid-2">
-        <section>
+        <section className="panel">
           <h3>Do now</h3>
           <ItemList items={focus} empty="Nothing in the Do quadrant. Open Priorities." />
         </section>
-        <section>
+        <section className="panel">
           <h3>Running</h3>
           {running.length === 0 ? <p className="muted">No active timers. Open Focus.</p> : null}
           <ul className="list">

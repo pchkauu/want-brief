@@ -52,7 +52,7 @@ export function InboxScreen() {
   }
 
   return (
-    <Window title="brief.md">
+    <Window title="Inbox">
       <form className="toolbar" onSubmit={onCreate}>
         <input
           placeholder="Capture a brief"

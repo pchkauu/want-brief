@@ -26,7 +26,7 @@ export function NotesScreen() {
   }
 
   return (
-    <Window title="notes">
+    <Window title="Notes">
       <form className="stack" onSubmit={onSubmit}>
         <textarea
           rows={5}

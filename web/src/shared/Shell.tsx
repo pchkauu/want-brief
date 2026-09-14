@@ -3,13 +3,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 const links = [
-  { to: '/today', label: 'Today', file: 'today.txt' },
-  { to: '/inbox', label: 'Inbox', file: 'brief.md' },
-  { to: '/matrix', label: 'Priorities', file: 'matrix' },
-  { to: '/track', label: 'Focus', file: 'focus.exe' },
-  { to: '/notes', label: 'Notes', file: 'notes' },
-  { to: '/load', label: 'Load', file: 'analytics' },
-  { to: '/settings', label: 'Sources', file: 'settings' },
+  { to: '/today', label: 'Today' },
+  { to: '/inbox', label: 'Inbox' },
+  { to: '/matrix', label: 'Priorities' },
+  { to: '/track', label: 'Focus' },
+  { to: '/notes', label: 'Notes' },
+  { to: '/load', label: 'Load' },
+  { to: '/settings', label: 'Sources' },
 ]
 
 function currentTheme(): 'dark' | 'light' {
@@ -34,13 +34,12 @@ export function Shell() {
           <img src="/logo.png" alt="" width={40} height={40} />
           <div>
             <strong>Want Brief</strong>
-            <span>ALL TASKS. ONE PLACE.</span>
+            <span>All tasks. One place.</span>
           </div>
         </div>
         <nav>
           {links.map((link) => (
             <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? 'active' : '')}>
-              <small>{link.file}</small>
               {link.label}
             </NavLink>
           ))}
@@ -56,7 +55,7 @@ export function Shell() {
               void api.logout().finally(() => navigate('/login'))
             }}
           >
-            Logout
+            Log out
           </button>
         </div>
       </aside>
