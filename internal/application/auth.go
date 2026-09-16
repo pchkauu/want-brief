@@ -14,24 +14,28 @@ import (
 )
 
 type Service struct {
-	Users        domain.UserRepository
-	Sessions     domain.SessionRepository
-	Projects     domain.ProjectRepository
-	Sources      domain.SourceRepository
-	Items        domain.ItemRepository
-	Notes        domain.NoteRepository
-	Intervals    domain.IntervalRepository
-	Stress       domain.StressRepository
-	Events       domain.EventRepository
-	People       domain.PersonRepository
-	PersonNotes  domain.PersonNoteRepository
-	ProjectNotes domain.ProjectNoteRepository
-	ItemNotes    domain.ItemNoteRepository
-	Journal      domain.JournalRepository
-	Tokens       domain.TokenBox
-	Pullers      map[domain.SourceKind]domain.Puller
-	Now          func() time.Time
-	Password     string
+	Users             domain.UserRepository
+	Sessions          domain.SessionRepository
+	Projects          domain.ProjectRepository
+	Sources           domain.SourceRepository
+	Items             domain.ItemRepository
+	Notes             domain.NoteRepository
+	Intervals         domain.IntervalRepository
+	Stress            domain.StressRepository
+	Events            domain.EventRepository
+	People            domain.PersonRepository
+	PersonNotes       domain.PersonNoteRepository
+	PersonContacts    domain.PersonContactRepository
+	PersonSites       domain.PersonSiteRepository
+	PersonBonds       domain.PersonBondRepository
+	PersonProfessions domain.PersonProfessionRepository
+	ProjectNotes      domain.ProjectNoteRepository
+	ItemNotes         domain.ItemNoteRepository
+	Journal           domain.JournalRepository
+	Tokens            domain.TokenBox
+	Pullers           map[domain.SourceKind]domain.Puller
+	Now               func() time.Time
+	Password          string
 }
 
 func (s *Service) now() time.Time {

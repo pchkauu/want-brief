@@ -14,19 +14,28 @@ func TestNewPersonRejectsEmptyName(t *testing.T) {
 	}
 }
 
-func TestNewPersonRejectsBornOnAndAge(t *testing.T) {
+func TestPersonBornOnWinsOverAgeYears(t *testing.T) {
 	born := time.Date(1990, 3, 15, 0, 0, 0, 0, time.UTC)
-	age := 35
-	_, err := NewPerson(PersonDraft{Name: "Ada", BornOn: &born, AgeYears: &age})
-	if err == nil {
-		t.Fatal("expected invalid bornOn or ageYears")
+	age := 41
+	person, err := NewPerson(PersonDraft{Name: "Ada", BornOn: &born, AgeYears: &age})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if person.BornOn == nil || !person.BornOn.Equal(born) {
+		t.Fatalf("got %v", person.BornOn)
 	}
 }
 
-func TestNewPersonRejectsNegativeSalary(t *testing.T) {
-	_, err := NewPerson(PersonDraft{Name: "Ada", MonthlySalaryUSD: -1})
-	if err == nil {
-		t.Fatal("expected invalid salary")
+func TestPersonAgeUsesMoscowDate(t *testing.T) {
+	born := time.Date(1985, 9, 17, 0, 0, 0, 0, time.UTC)
+	person, err := NewPerson(PersonDraft{Name: "Ada", BornOn: &born})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 16, 21, 40, 0, 0, time.UTC)
+	got := person.AgeAt(now)
+	if got == nil || *got != 41 {
+		t.Fatalf("got %v", got)
 	}
 }
 
@@ -43,13 +52,18 @@ func TestPersonAgeFromBornOn(t *testing.T) {
 	}
 }
 
-func TestPersonAgeFromYears(t *testing.T) {
+func TestPersonAgeYearsPresumesBornOn(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	age := 41
-	person, err := NewPerson(PersonDraft{Name: "Ada", AgeYears: &age})
+	person, err := newPersonAt(PersonDraft{Name: "Ada", AgeYears: &age}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := person.AgeAt(time.Now())
+	want := PresumeBornOn(41, now)
+	if person.BornOn == nil || !person.BornOn.Equal(want) {
+		t.Fatalf("got %v want %v", person.BornOn, want)
+	}
+	got := person.AgeAt(now)
 	if got == nil || *got != 41 {
 		t.Fatalf("got %v", got)
 	}

@@ -1,4 +1,5 @@
 import type { Person } from '../../types'
+import { bondKindLabel, primaryContact, professionLabel } from './peopleModel'
 
 type Props = {
   person: Person
@@ -14,6 +15,7 @@ export function personInitials(name: string): string {
 }
 
 export function PersonCard({ person, selected, onPick }: Props) {
+  const primary = primaryContact(person)
   return (
     <button
       type="button"
@@ -25,9 +27,15 @@ export function PersonCard({ person, selected, onPick }: Props) {
       </span>
       <span className="people-row-copy">
         <strong>{person.name}</strong>
-        <span>{person.profession || 'No profession'}</span>
+        <span>
+          {professionLabel(person) || 'No profession'}
+          {primary ? ` · ${primary.value}` : ''}
+        </span>
       </span>
-      <span className="people-row-age">{person.age ?? ''}</span>
+      <span className="people-row-age">
+        {person.age ?? ''}
+        {person.meBond ? ` · ${bondKindLabel(person.meBond.kind)}` : ''}
+      </span>
     </button>
   )
 }

@@ -1,27 +1,72 @@
+import { useMemo, useState } from 'react'
 import type { Person } from '../../types'
 import { personInitials } from './PersonCard'
+import { bondKindLabel, primaryContact, professionLabel } from './peopleModel'
+
+type Col = 'name' | 'profession' | 'age' | 'primary' | 'me' | 'note'
 
 type Props = {
   people: Person[]
   onPick: (id: string) => void
 }
 
+const COLS: { id: Col; label: string }[] = [
+  { id: 'name', label: 'Name' },
+  { id: 'profession', label: 'Profession' },
+  { id: 'age', label: 'Age' },
+  { id: 'primary', label: 'Primary' },
+  { id: 'me', label: 'Me' },
+  { id: 'note', label: 'Last note' },
+]
+
+function noteLabel(iso: string | null | undefined): string {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' }).format(new Date(iso))
+}
+
+function sortValue(person: Person, col: Col): string | number {
+  if (col === 'name') return person.name.toLowerCase()
+  if (col === 'profession') return professionLabel(person).toLowerCase()
+  if (col === 'age') return person.age ?? -1
+  if (col === 'primary') return primaryContact(person)?.value.toLowerCase() ?? ''
+  if (col === 'me') return person.meBond?.kind ?? ''
+  return person.lastNoteAt ?? ''
+}
+
 export function PeopleTable({ people, onPick }: Props) {
+  const [sort, setSort] = useState<{ col: Col; dir: 'asc' | 'desc' }>({ col: 'name', dir: 'asc' })
+  const rows = useMemo(() => {
+    const copy = [...people]
+    copy.sort((a, b) => {
+      const av = sortValue(a, sort.col)
+      const bv = sortValue(b, sort.col)
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sort.dir === 'asc' ? cmp : -cmp
+    })
+    return copy
+  }, [people, sort])
+
+  function toggle(col: Col) {
+    setSort((current) => (current.col === col ? { col, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }))
+  }
+
   return (
     <div className="people-table-wrap">
       <table className="people-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Profession</th>
-            <th>Age</th>
-            <th>Projects</th>
-            <th>Events</th>
-            <th>Tasks</th>
+            {COLS.map((col) => (
+              <th key={col.id}>
+                <button type="button" className="people-th" onClick={() => toggle(col.id)}>
+                  {col.label}
+                  {sort.col === col.id ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </button>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {people.map((person) => (
+          {rows.map((person) => (
             <tr key={person.id} onClick={() => onPick(person.id)}>
               <td>
                 <button type="button" className="people-table-name" onClick={() => onPick(person.id)}>
@@ -31,11 +76,11 @@ export function PeopleTable({ people, onPick }: Props) {
                   {person.name}
                 </button>
               </td>
-              <td>{person.profession || 'No profession'}</td>
+              <td>{professionLabel(person) || 'No profession'}</td>
               <td className="mono">{person.age ?? ''}</td>
-              <td className="mono">{person.projects.length}</td>
-              <td className="mono">{person.events.length}</td>
-              <td className="mono">{person.itemIds.length}</td>
+              <td>{primaryContact(person)?.value ?? ''}</td>
+              <td>{person.meBond ? bondKindLabel(person.meBond.kind) : ''}</td>
+              <td className="mono">{noteLabel(person.lastNoteAt)}</td>
             </tr>
           ))}
         </tbody>

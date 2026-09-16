@@ -1,4 +1,4 @@
-import { PencilSimple } from '@phosphor-icons/react'
+import { Plus } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
 import { TaskSheet } from '../tasks/TaskSheet'
 import type { PersonRel } from '../../types'
@@ -11,12 +11,6 @@ type Props = {
   value: PersonRel[]
   onChange: (next: PersonRel[]) => void
   requireComment?: boolean
-}
-
-export function summarizeNames(names: string[]): string {
-  if (names.length === 0) return 'None'
-  if (names.length <= 2) return names.join(', ')
-  return `${names[0]}, ${names[1]}, +${names.length - 2} more`
 }
 
 export function idsToRels(ids: string[]): PersonRel[] {
@@ -69,10 +63,15 @@ export function RelationField({ label, options, value, onChange, requireComment 
   return (
     <div className="people-block">
       <p className="people-block-label">{label}</p>
-      <div className="rel-summary">
-        <p>{summarizeNames(names)}</p>
+      <div className="rel-chips">
+        {names.length === 0 ? <p className="muted">None</p> : null}
+        {names.map((name, index) => (
+          <span key={`${value[index]?.id ?? name}-${index}`} className="rel-chip">
+            {name}
+          </span>
+        ))}
         <button type="button" className="ghost rel-edit" aria-label={`Edit ${label}`} onClick={() => setOpen(true)}>
-          <PencilSimple size={16} weight="light" aria-hidden />
+          <Plus size={16} weight="light" aria-hidden />
         </button>
       </div>
       <TaskSheet open={open} kicker="Links" title={label} onClose={() => setOpen(false)}>

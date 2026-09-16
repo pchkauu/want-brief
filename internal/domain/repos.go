@@ -94,6 +94,38 @@ type PersonNoteRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (PersonNote, error)
 	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonNote, error)
 	Create(ctx context.Context, note PersonNote) (PersonNote, error)
+	Update(ctx context.Context, note PersonNote) (PersonNote, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type PersonContactRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (PersonContact, error)
+	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonContact, error)
+	Create(ctx context.Context, contact PersonContact) (PersonContact, error)
+	Update(ctx context.Context, contact PersonContact) (PersonContact, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type PersonSiteRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (PersonSite, error)
+	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonSite, error)
+	Create(ctx context.Context, site PersonSite) (PersonSite, error)
+	Update(ctx context.Context, site PersonSite) (PersonSite, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type PersonBondRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (PersonBond, error)
+	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonBond, error)
+	Create(ctx context.Context, bond PersonBond, event PersonBondEvent) (PersonBond, error)
+	Update(ctx context.Context, bond PersonBond, event PersonBondEvent) (PersonBond, error)
+}
+
+type PersonProfessionRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (PersonProfession, error)
+	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonProfession, error)
+	Create(ctx context.Context, profession PersonProfession) (PersonProfession, error)
+	Update(ctx context.Context, profession PersonProfession) (PersonProfession, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 

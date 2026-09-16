@@ -14,82 +14,75 @@ type PersonRel struct {
 }
 
 type Person struct {
-	ID               uuid.UUID   `json:"id"`
-	Name             string      `json:"name"`
-	BornOn           *time.Time  `json:"bornOn"`
-	AgeYears         *int        `json:"ageYears"`
-	Age              *int        `json:"age"`
-	Profession       string      `json:"profession"`
-	MonthlySalaryUSD float64     `json:"monthlySalaryUsd"`
-	MonthlySalaryRUB float64     `json:"monthlySalaryRub"`
-	Projects         []PersonRel `json:"projects"`
-	Events           []PersonRel `json:"events"`
-	ItemIDs          []uuid.UUID `json:"itemIds"`
-	CreatedAt        time.Time   `json:"createdAt"`
-	UpdatedAt        time.Time   `json:"updatedAt"`
+	ID          uuid.UUID          `json:"id"`
+	Name        string             `json:"name"`
+	BornOn      *time.Time         `json:"bornOn"`
+	Age         *int               `json:"age"`
+	Projects    []PersonRel        `json:"projects"`
+	Events      []PersonRel        `json:"events"`
+	ItemIDs     []uuid.UUID        `json:"itemIds"`
+	Contacts    []PersonContact    `json:"contacts"`
+	Sites       []PersonSite       `json:"sites"`
+	Bonds       []PersonBond       `json:"bonds"`
+	Professions []PersonProfession `json:"professions"`
+	MeBond      *MeBond            `json:"meBond"`
+	LastNoteAt  *time.Time         `json:"lastNoteAt"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	UpdatedAt   time.Time          `json:"updatedAt"`
 }
 
 type PersonDraft struct {
-	Name             string
-	BornOn           *time.Time
-	AgeYears         *int
-	Profession       string
-	MonthlySalaryUSD float64
-	MonthlySalaryRUB float64
-	Projects         []PersonRel
-	Events           []PersonRel
-	ItemIDs          []uuid.UUID
+	Name     string
+	BornOn   *time.Time
+	AgeYears *int
+	Projects []PersonRel
+	Events   []PersonRel
+	ItemIDs  []uuid.UUID
 }
 
 func NewPerson(draft PersonDraft) (Person, error) {
-	now := time.Now().UTC()
+	return newPersonAt(draft, time.Now().UTC())
+}
+
+func newPersonAt(draft PersonDraft, now time.Time) (Person, error) {
 	person := Person{
 		ID:        uuid.New(),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := person.apply(draft); err != nil {
+	if err := person.apply(draft, now); err != nil {
 		return Person{}, err
 	}
 	return person.WithAge(now), nil
 }
 
 func (p *Person) Apply(draft PersonDraft) error {
-	if err := p.apply(draft); err != nil {
+	now := time.Now().UTC()
+	if err := p.apply(draft, now); err != nil {
 		return err
 	}
-	p.UpdatedAt = time.Now().UTC()
+	p.UpdatedAt = now
 	return nil
 }
 
-func (p *Person) apply(draft PersonDraft) error {
+func (p *Person) apply(draft PersonDraft, now time.Time) error {
 	name := strings.TrimSpace(draft.Name)
 	if name == "" {
 		return fmt.Errorf("%w: person name", ErrInvalid)
 	}
-	if draft.BornOn != nil && draft.AgeYears != nil {
-		return fmt.Errorf("%w: bornOn or ageYears", ErrInvalid)
-	}
 	if draft.AgeYears != nil && (*draft.AgeYears < 0 || *draft.AgeYears > 150) {
 		return fmt.Errorf("%w: ageYears", ErrInvalid)
 	}
-	if draft.MonthlySalaryUSD < 0 {
-		return fmt.Errorf("%w: monthly salary usd", ErrInvalid)
-	}
-	if draft.MonthlySalaryRUB < 0 {
-		return fmt.Errorf("%w: monthly salary rub", ErrInvalid)
-	}
 	var bornOn *time.Time
 	if draft.BornOn != nil {
-		day := time.Date(draft.BornOn.Year(), draft.BornOn.Month(), draft.BornOn.Day(), 0, 0, 0, 0, time.UTC)
+		day := dateUTC(*draft.BornOn)
+		bornOn = &day
+	} else if draft.AgeYears != nil {
+		day := PresumeBornOn(*draft.AgeYears, now)
 		bornOn = &day
 	}
 	p.Name = name
 	p.BornOn = bornOn
-	p.AgeYears = draft.AgeYears
-	p.Profession = strings.TrimSpace(draft.Profession)
-	p.MonthlySalaryUSD = draft.MonthlySalaryUSD
-	p.MonthlySalaryRUB = draft.MonthlySalaryRUB
 	projects, err := NormalizePersonRels(draft.Projects)
 	if err != nil {
 		return err
@@ -104,12 +97,25 @@ func (p *Person) apply(draft PersonDraft) error {
 	return nil
 }
 
+func PresumeBornOn(age int, now time.Time) time.Time {
+	return MoscowDate(now).AddDate(-age, 0, 0)
+}
+
+func MoscowDate(now time.Time) time.Time {
+	y, m, d := now.In(Moscow()).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func dateUTC(day time.Time) time.Time {
+	return time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 func (p Person) AgeAt(now time.Time) *int {
-	if p.BornOn != nil {
-		years := yearsSince(*p.BornOn, now)
-		return &years
+	if p.BornOn == nil {
+		return nil
 	}
-	return p.AgeYears
+	years := yearsSince(*p.BornOn, now)
+	return &years
 }
 
 func (p Person) WithAge(now time.Time) Person {
@@ -123,13 +129,27 @@ func (p Person) WithAge(now time.Time) Person {
 	if p.ItemIDs == nil {
 		p.ItemIDs = []uuid.UUID{}
 	}
+	if p.Contacts == nil {
+		p.Contacts = []PersonContact{}
+	}
+	if p.Sites == nil {
+		p.Sites = []PersonSite{}
+	}
+	if p.Bonds == nil {
+		p.Bonds = []PersonBond{}
+	}
+	if p.Professions == nil {
+		p.Professions = []PersonProfession{}
+	}
 	return p
 }
 
 func yearsSince(born, now time.Time) int {
-	years := now.UTC().Year() - born.UTC().Year()
-	anniversary := time.Date(now.UTC().Year(), born.Month(), born.Day(), 0, 0, 0, 0, time.UTC)
-	if now.UTC().Before(anniversary) {
+	today := MoscowDate(now)
+	bornDay := dateUTC(born)
+	years := today.Year() - bornDay.Year()
+	anniversary := time.Date(today.Year(), bornDay.Month(), bornDay.Day(), 0, 0, 0, 0, time.UTC)
+	if today.Before(anniversary) {
 		years--
 	}
 	if years < 0 {

@@ -32,6 +32,86 @@ export type PersonRel = {
   comment: string
 }
 
+export type ContactKind = 'phone' | 'telegram' | 'url'
+export type SiteKind = 'personal_site' | 'company_site' | 'github' | 'linkedin' | 'youtube' | 'telegram_channel' | 'other'
+export type BondKind = 'acquaintance' | 'comrade' | 'friend' | 'relative' | 'spouse' | 'adversary' | 'other'
+export type BondAction = 'open' | 'change' | 'end'
+
+export type PersonContact = {
+  id: string
+  personId: string
+  kind: ContactKind
+  label: string
+  value: string
+  note: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type PersonSite = {
+  id: string
+  personId: string
+  kind: SiteKind
+  url: string
+  comment: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type PersonBondEvent = {
+  id: string
+  bondId: string
+  action: BondAction
+  kind: BondKind
+  comment: string
+  startedOn: string
+  changedOn: string
+  endedOn: string | null
+  at: string
+}
+
+export type PersonBond = {
+  id: string
+  personAId: string | null
+  personBId: string
+  otherId: string | null
+  otherName: string
+  kind: BondKind
+  comment: string
+  startedOn: string
+  changedOn: string
+  endedOn: string | null
+  events: PersonBondEvent[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type MeBond = {
+  id: string
+  kind: BondKind
+}
+
+export type SalaryPeriod = {
+  id: string
+  professionId: string
+  startedOn: string
+  endedOn: string | null
+  monthlySalaryUsd: number
+  monthlySalaryRub: number
+}
+
+export type PersonProfession = {
+  id: string
+  personId: string
+  title: string
+  comment: string
+  startedOn: string
+  endedOn: string | null
+  salaries: SalaryPeriod[]
+  createdAt: string
+  updatedAt: string
+}
+
 export type Project = {
   id: string
   name: string
@@ -52,14 +132,16 @@ export type Person = {
   id: string
   name: string
   bornOn: string | null
-  ageYears: number | null
   age: number | null
-  profession: string
-  monthlySalaryUsd: number
-  monthlySalaryRub: number
   projects: PersonRel[]
   events: PersonRel[]
   itemIds: string[]
+  contacts: PersonContact[]
+  sites: PersonSite[]
+  bonds: PersonBond[]
+  professions: PersonProfession[]
+  meBond: MeBond | null
+  lastNoteAt: string | null
   createdAt: string
   updatedAt: string
 }

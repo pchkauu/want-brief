@@ -75,7 +75,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/people/{id}", s.withAuth(s.deletePerson))
 	mux.HandleFunc("GET /api/people/{id}/notes", s.withAuth(s.listPersonNotes))
 	mux.HandleFunc("POST /api/people/{id}/notes", s.withAuth(s.createPersonNote))
+	mux.HandleFunc("PATCH /api/people/{id}/notes/{noteId}", s.withAuth(s.patchPersonNote))
 	mux.HandleFunc("DELETE /api/people/{id}/notes/{noteId}", s.withAuth(s.deletePersonNote))
+	mux.HandleFunc("POST /api/people/{id}/contacts", s.withAuth(s.createPersonContact))
+	mux.HandleFunc("PATCH /api/people/{id}/contacts/{contactId}", s.withAuth(s.patchPersonContact))
+	mux.HandleFunc("DELETE /api/people/{id}/contacts/{contactId}", s.withAuth(s.deletePersonContact))
+	mux.HandleFunc("POST /api/people/{id}/professions", s.withAuth(s.createPersonProfession))
+	mux.HandleFunc("PATCH /api/people/{id}/professions/{professionId}", s.withAuth(s.patchPersonProfession))
+	mux.HandleFunc("DELETE /api/people/{id}/professions/{professionId}", s.withAuth(s.deletePersonProfession))
+	mux.HandleFunc("POST /api/people/{id}/sites", s.withAuth(s.createPersonSite))
+	mux.HandleFunc("PATCH /api/people/{id}/sites/{siteId}", s.withAuth(s.patchPersonSite))
+	mux.HandleFunc("DELETE /api/people/{id}/sites/{siteId}", s.withAuth(s.deletePersonSite))
+	mux.HandleFunc("POST /api/people/{id}/bonds", s.withAuth(s.createPersonBond))
+	mux.HandleFunc("PATCH /api/people/{id}/bonds/{bondId}", s.withAuth(s.patchPersonBond))
+	mux.HandleFunc("POST /api/people/{id}/bonds/{bondId}/end", s.withAuth(s.endPersonBond))
 	mux.HandleFunc("GET /api/load", s.withAuth(s.load))
 	mux.HandleFunc("GET /api/schedule", s.withAuth(s.schedule))
 	mux.HandleFunc("GET /api/journal", s.withAuth(s.listJournal))
@@ -1188,6 +1201,32 @@ func (s *Server) createPersonNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, note)
 }
 
+func (s *Server) patchPersonNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	noteID, err := uuid.Parse(r.PathValue("noteId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	note, err := s.App.ReplacePersonNote(r.Context(), id, noteID, body.Body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, note)
+}
+
 func (s *Server) deletePersonNote(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -1206,17 +1245,385 @@ func (s *Server) deletePersonNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) createPersonContact(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	draft, err := decodePersonContact(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	contact, err := s.App.CreatePersonContact(r.Context(), id, draft)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, contact)
+}
+
+func (s *Server) patchPersonContact(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	contactID, err := parseNamedID(r, "contactId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	draft, err := decodePersonContact(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	contact, err := s.App.ReplacePersonContact(r.Context(), id, contactID, draft)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, contact)
+}
+
+func (s *Server) deletePersonContact(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	contactID, err := parseNamedID(r, "contactId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.App.DeletePersonContact(r.Context(), id, contactID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createPersonProfession(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	write, err := decodePersonProfession(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	prof, err := s.App.CreatePersonProfession(r.Context(), id, write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, prof)
+}
+
+func (s *Server) patchPersonProfession(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	professionID, err := parseNamedID(r, "professionId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	write, err := decodePersonProfession(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	prof, err := s.App.ReplacePersonProfession(r.Context(), id, professionID, write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, prof)
+}
+
+func (s *Server) deletePersonProfession(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	professionID, err := parseNamedID(r, "professionId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.App.DeletePersonProfession(r.Context(), id, professionID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createPersonSite(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	draft, err := decodePersonSite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	site, err := s.App.CreatePersonSite(r.Context(), id, draft)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, site)
+}
+
+func (s *Server) patchPersonSite(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	siteID, err := parseNamedID(r, "siteId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	draft, err := decodePersonSite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	site, err := s.App.ReplacePersonSite(r.Context(), id, siteID, draft)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, site)
+}
+
+func (s *Server) deletePersonSite(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	siteID, err := parseNamedID(r, "siteId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.App.DeletePersonSite(r.Context(), id, siteID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createPersonBond(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		OtherID   *string `json:"otherId"`
+		Kind      string  `json:"kind"`
+		Comment   string  `json:"comment"`
+		StartedOn *string `json:"startedOn"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	other, err := parseOptionalOtherID(body.OtherID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	startedOn, err := parseOptionalDate(body.StartedOn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bond, err := s.App.OpenBond(r.Context(), id, application.BondOpen{
+		OtherID:   other,
+		Kind:      body.Kind,
+		Comment:   body.Comment,
+		StartedOn: startedOn,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, bond)
+}
+
+func (s *Server) patchPersonBond(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bondID, err := parseNamedID(r, "bondId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		Kind          string  `json:"kind"`
+		Comment       *string `json:"comment"`
+		ActionComment string  `json:"actionComment"`
+		StartedOn     *string `json:"startedOn"`
+		ChangedOn     *string `json:"changedOn"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	startedOn, err := parseOptionalDate(body.StartedOn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	changedOn, err := parseOptionalDate(body.ChangedOn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bond, err := s.App.ChangeBond(r.Context(), id, bondID, application.BondPatch{
+		BondChange: domain.BondChange{
+			Kind:      body.Kind,
+			Comment:   body.Comment,
+			StartedOn: startedOn,
+			ChangedOn: changedOn,
+		},
+		ActionComment: body.ActionComment,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bond)
+}
+
+func (s *Server) endPersonBond(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bondID, err := parseNamedID(r, "bondId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		EndedOn *string `json:"endedOn"`
+		Comment string  `json:"comment"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	endedOn, err := parseOptionalDate(body.EndedOn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bond, err := s.App.EndBond(r.Context(), id, bondID, application.BondEnd{
+		EndedOn: endedOn,
+		Comment: body.Comment,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bond)
+}
+
+func decodePersonContact(r *http.Request) (domain.PersonContactDraft, error) {
+	var body struct {
+		Kind  string `json:"kind"`
+		Label string `json:"label"`
+		Value string `json:"value"`
+		Note  string `json:"note"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		return domain.PersonContactDraft{}, err
+	}
+	return domain.PersonContactDraft{Kind: body.Kind, Label: body.Label, Value: body.Value, Note: body.Note}, nil
+}
+
+func decodePersonSite(r *http.Request) (domain.PersonSiteDraft, error) {
+	var body struct {
+		Kind    string `json:"kind"`
+		URL     string `json:"url"`
+		Comment string `json:"comment"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		return domain.PersonSiteDraft{}, err
+	}
+	return domain.PersonSiteDraft{Kind: body.Kind, URL: body.URL, Comment: body.Comment}, nil
+}
+
+func decodePersonProfession(r *http.Request) (application.ProfessionWrite, error) {
+	var body struct {
+		Title            string  `json:"title"`
+		Comment          string  `json:"comment"`
+		StartedOn        *string `json:"startedOn"`
+		EndedOn          *string `json:"endedOn"`
+		MonthlySalaryUSD float64 `json:"monthlySalaryUsd"`
+		MonthlySalaryRUB float64 `json:"monthlySalaryRub"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		return application.ProfessionWrite{}, err
+	}
+	startedOn, err := parseOptionalDate(body.StartedOn)
+	if err != nil {
+		return application.ProfessionWrite{}, err
+	}
+	endedOn, err := parseOptionalDate(body.EndedOn)
+	if err != nil {
+		return application.ProfessionWrite{}, err
+	}
+	return application.ProfessionWrite{
+		Title:            body.Title,
+		Comment:          body.Comment,
+		StartedOn:        startedOn,
+		EndedOn:          endedOn,
+		MonthlySalaryUSD: body.MonthlySalaryUSD,
+		MonthlySalaryRUB: body.MonthlySalaryRUB,
+	}, nil
+}
+
+func parseOptionalOtherID(raw *string) (*uuid.UUID, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(*raw)
+	if err != nil {
+		return nil, domain.ErrInvalid
+	}
+	return &id, nil
+}
+
 func decodePersonWrite(r *http.Request) (application.PersonWrite, error) {
 	var body struct {
-		Name             string             `json:"name"`
-		BornOn           *string            `json:"bornOn"`
-		AgeYears         *int               `json:"ageYears"`
-		Profession       string             `json:"profession"`
-		MonthlySalaryUSD float64            `json:"monthlySalaryUsd"`
-		MonthlySalaryRUB float64            `json:"monthlySalaryRub"`
-		Projects         []domain.PersonRel `json:"projects"`
-		Events           []domain.PersonRel `json:"events"`
-		ItemIDs          []string           `json:"itemIds"`
+		Name     string             `json:"name"`
+		BornOn   *string            `json:"bornOn"`
+		AgeYears *int               `json:"ageYears"`
+		Projects []domain.PersonRel `json:"projects"`
+		Events   []domain.PersonRel `json:"events"`
+		ItemIDs  []string           `json:"itemIds"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		return application.PersonWrite{}, err
@@ -1238,15 +1645,12 @@ func decodePersonWrite(r *http.Request) (application.PersonWrite, error) {
 		return application.PersonWrite{}, err
 	}
 	return application.PersonWrite{
-		Name:             body.Name,
-		BornOn:           bornOn,
-		AgeYears:         body.AgeYears,
-		Profession:       body.Profession,
-		MonthlySalaryUSD: body.MonthlySalaryUSD,
-		MonthlySalaryRUB: body.MonthlySalaryRUB,
-		Projects:         projects,
-		Events:           events,
-		ItemIDs:          items,
+		Name:     body.Name,
+		BornOn:   bornOn,
+		AgeYears: body.AgeYears,
+		Projects: projects,
+		Events:   events,
+		ItemIDs:  items,
 	}, nil
 }
 
@@ -1320,7 +1724,11 @@ func parseOptionalTime(raw string) (time.Time, error) {
 }
 
 func parseID(r *http.Request) (uuid.UUID, error) {
-	id, err := uuid.Parse(r.PathValue("id"))
+	return parseNamedID(r, "id")
+}
+
+func parseNamedID(r *http.Request, name string) (uuid.UUID, error) {
+	id, err := uuid.Parse(r.PathValue(name))
 	if err != nil {
 		return uuid.Nil, domain.ErrInvalid
 	}

@@ -42,7 +42,12 @@ function labelOf(value: string, mode: Mode): string {
 }
 
 function monthLabel(year: number, month: number): string {
-  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1))
+  return new Intl.DateTimeFormat('en-GB', { month: 'long' }).format(new Date(year, month, 1))
+}
+
+function yearOptions(now: Date): number[] {
+  const max = now.getFullYear() + 2
+  return Array.from({ length: max - 1920 + 1 }, (_, i) => 1920 + i)
 }
 
 function cells(year: number, month: number): Date[] {
@@ -110,6 +115,14 @@ export function DateField({ mode, value, onChange, onCommit }: Props) {
     onChange(stamp(base, nextHours, nextMinutes, 'datetime'))
   }
 
+  const years = yearOptions(now)
+  const minYear = years[0]
+  const maxYear = years[years.length - 1]
+
+  function shiftYear(delta: number) {
+    setCursor(new Date(Math.min(maxYear, Math.max(minYear, cursor.getFullYear() + delta)), cursor.getMonth(), 1))
+  }
+
   const today = ymd(now)
   const chosen = selected ? ymd(selected) : ''
 
@@ -124,12 +137,31 @@ export function DateField({ mode, value, onChange, onCommit }: Props) {
             <button
               type="button"
               className="ghost"
+              aria-label="Previous year"
+              onClick={() => shiftYear(-1)}
+            >
+              ‹‹
+            </button>
+            <button
+              type="button"
+              className="ghost"
               aria-label="Previous month"
               onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
             >
               ‹
             </button>
             <strong>{monthLabel(cursor.getFullYear(), cursor.getMonth())}</strong>
+            <select
+              aria-label="Year"
+              value={cursor.getFullYear()}
+              onChange={(e) => setCursor(new Date(Number(e.target.value), cursor.getMonth(), 1))}
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className="ghost"
@@ -137,6 +169,14 @@ export function DateField({ mode, value, onChange, onCommit }: Props) {
               onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
             >
               ›
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              aria-label="Next year"
+              onClick={() => shiftYear(1)}
+            >
+              ››
             </button>
           </div>
           <div className="cal-grid">

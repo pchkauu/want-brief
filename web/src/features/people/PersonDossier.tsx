@@ -1,9 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { DotsThree } from '@phosphor-icons/react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { DateField } from '../../shared/DateField'
+import { moscowYmd } from '../../shared/moscow'
 import type { Person } from '../../types'
 import { personInitials } from './PersonCard'
+import { PersonBonds } from './PersonBonds'
+import { PersonContacts } from './PersonContacts'
+import { PersonLog } from './PersonLog'
+import { PersonNotes } from './PersonNotes'
+import { PersonOverview } from './PersonOverview'
+import { PersonProfessions } from './PersonProfessions'
+import { PersonSites } from './PersonSites'
 import { idsToRels, relIds, RelationField } from './RelationField'
 
 type Props = {
@@ -13,27 +22,65 @@ type Props = {
   onClose?: () => void
 }
 
+type Draft = {
+  name: string
+  bornOn: string
+  ageYears: string
+  projects: Person['projects']
+  events: Person['events']
+  items: Person['projects']
+}
+
+const SECTIONS = [
+  { id: 'people-sec-overview', label: 'Overview' },
+  { id: 'people-sec-professions', label: 'Professions' },
+  { id: 'people-sec-contacts', label: 'Contacts' },
+  { id: 'people-sec-notes', label: 'Notes' },
+  { id: 'people-sec-relations', label: 'Relations' },
+  { id: 'people-sec-work', label: 'Work' },
+  { id: 'people-sec-log', label: 'Log' },
+] as const
+
 function dateOnly(iso: string | null): string {
   if (!iso) return ''
   return iso.slice(0, 10)
 }
 
-function draftFrom(row?: Person) {
+function presumeBornOn(age: number): string {
+  const [year, month, day] = moscowYmd().split('-').map(Number)
+  return new Date(Date.UTC(year - age, month - 1, day)).toISOString().slice(0, 10)
+}
+
+function ageFromBornOn(bornOn: string): number {
+  const [ty, tm, td] = moscowYmd().split('-').map(Number)
+  const [by, bm, bd] = bornOn.split('-').map(Number)
+  let years = ty - by
+  if (tm < bm || (tm === bm && td < bd)) years -= 1
+  return Math.max(0, years)
+}
+
+function draftFrom(row?: Person): Draft {
   return {
     name: row?.name ?? '',
     bornOn: dateOnly(row?.bornOn ?? null),
-    ageYears: row?.ageYears != null ? String(row.ageYears) : '',
-    profession: row?.profession ?? '',
-    monthlySalaryUsd: row ? String(row.monthlySalaryUsd) : '0',
-    monthlySalaryRub: row ? String(row.monthlySalaryRub) : '0',
+    ageYears: row?.age != null ? String(row.age) : '',
     projects: row?.projects ?? [],
     events: row?.events ?? [],
     items: idsToRels(row?.itemIds ?? []),
   }
 }
 
-function noteStamp(iso: string): string {
-  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+function payloadFrom(form: Draft) {
+  const bornOn = form.bornOn.trim()
+  const years = form.ageYears.trim()
+  return {
+    name: form.name.trim(),
+    bornOn: bornOn || null,
+    ageYears: !bornOn && years !== '' ? Number(years) : null,
+    projects: form.projects,
+    events: form.events,
+    itemIds: relIds(form.items),
+  }
 }
 
 export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props) {
@@ -52,13 +99,23 @@ export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props
   const series = useQuery({ queryKey: ['event-series'], queryFn: api.eventSeries })
   const items = useQuery({ queryKey: ['items'], queryFn: () => api.items({ includeArchived: true }) })
   const [form, setForm] = useState(() => draftFrom())
-  const [noteBody, setNoteBody] = useState('')
   const [error, setError] = useState('')
+  const [menu, setMenu] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const lastSaved = useRef('')
 
   useEffect(() => {
-    if (personId && person.data) setForm(draftFrom(person.data))
-    if (!personId) setForm(draftFrom())
-  }, [personId, person.data?.id, person.data?.updatedAt])
+    if (!personId) {
+      setForm(draftFrom())
+      lastSaved.current = ''
+      return
+    }
+    if (person.data?.id === personId) {
+      const next = draftFrom(person.data)
+      setForm(next)
+      lastSaved.current = JSON.stringify(payloadFrom(next))
+    }
+  }, [personId, person.data?.id])
 
   useEffect(() => {
     if (!onClose) return
@@ -72,26 +129,13 @@ export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  function body() {
-    const bornOn = form.bornOn.trim()
-    const years = form.ageYears.trim()
-    return {
-      name: form.name.trim(),
-      bornOn: bornOn || null,
-      ageYears: !bornOn && years !== '' ? Number(years) : null,
-      profession: form.profession,
-      monthlySalaryUsd: Number(form.monthlySalaryUsd) || 0,
-      monthlySalaryRub: Number(form.monthlySalaryRub) || 0,
-      projects: form.projects,
-      events: form.events,
-      itemIds: relIds(form.items),
-    }
-  }
-
   const save = useMutation({
-    mutationFn: () => (personId ? api.patchPerson(personId, body()) : api.createPerson(body())),
+    mutationFn: (body: ReturnType<typeof payloadFrom>) =>
+      personId ? api.patchPerson(personId, body) : api.createPerson(body),
     onSuccess: (row) => {
       setError('')
+      setWaiting(false)
+      lastSaved.current = JSON.stringify(payloadFrom(draftFrom(row)))
       void queryClient.invalidateQueries({ queryKey: ['people'] })
       void queryClient.invalidateQueries({ queryKey: ['person'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -100,7 +144,10 @@ export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props
       void queryClient.invalidateQueries({ queryKey: ['items'] })
       if (!personId) onCreated(row.id)
     },
-    onError: (err) => setError(err instanceof Error ? err.message : 'Could not save.'),
+    onError: (err) => {
+      setWaiting(false)
+      setError(err instanceof Error ? err.message : 'Could not save.')
+    },
   })
   const remove = useMutation({
     mutationFn: () => api.deletePerson(personId!),
@@ -116,41 +163,84 @@ export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props
     },
     onError: (err) => setError(err instanceof Error ? err.message : 'Could not delete.'),
   })
-  const addNote = useMutation({
-    mutationFn: () => api.createPersonNote(personId!, noteBody),
-    onSuccess: () => {
-      setNoteBody('')
-      void queryClient.invalidateQueries({ queryKey: ['person-notes', personId] })
-    },
-    onError: (err) => setError(err instanceof Error ? err.message : 'Could not add note.'),
-  })
-  const dropNote = useMutation({
-    mutationFn: (noteId: string) => api.deletePersonNote(personId!, noteId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['person-notes', personId] }),
-  })
 
-  function onSubmit(event: FormEvent) {
+  useEffect(() => {
+    if (!personId || person.data?.id !== personId) return
+    const body = payloadFrom(form)
+    if (!body.name) return
+    if (form.projects.some((rel) => !rel.comment.trim()) || form.events.some((rel) => !rel.comment.trim())) {
+      setWaiting(false)
+      setError('Comment is required for each project and event.')
+      return
+    }
+    if (JSON.stringify(body) === lastSaved.current) {
+      setWaiting(false)
+      return
+    }
+    setError('')
+    setWaiting(true)
+    const timer = window.setTimeout(() => save.mutate(body), 400)
+    return () => window.clearTimeout(timer)
+  }, [form, personId, person.data?.id])
+
+  function onCreate(event: FormEvent) {
     event.preventDefault()
     if (!form.name.trim()) {
       setError('Name is required.')
       return
     }
-    if (form.projects.some((rel) => !rel.comment.trim()) || form.events.some((rel) => !rel.comment.trim())) {
-      setError('Comment is required for each project and event.')
-      return
-    }
-    save.mutate()
+    save.mutate(payloadFrom(form))
+  }
+
+  function jump(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   if (personId && person.isLoading) return <p className="muted">Loading…</p>
   if (personId && person.isError) return <p className="error">{person.error.message}</p>
 
-  const log = notes.data ?? []
-  const title = person.data?.name || (personId ? 'Person' : 'New person')
-  const subtitle = person.data?.profession || (personId ? '' : 'Create a record')
+  const row = person.data
+  const title = form.name || row?.name || (personId ? 'Person' : 'New person')
+  const saving = waiting || save.isPending
+
+  if (!personId) {
+    return (
+      <form className="people-form" onSubmit={onCreate}>
+        <header className="people-detail-head">
+          {onClose ? (
+            <button type="button" className="people-close" onClick={onClose}>
+              Close
+            </button>
+          ) : null}
+          <span className="people-avatar" aria-hidden>
+            {personInitials(title)}
+          </span>
+          <div>
+            <h2>New person</h2>
+            <p>Create a record</p>
+          </div>
+        </header>
+        <label>
+          Name
+          <input
+            id="person-name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            autoComplete="off"
+            autoFocus
+          />
+        </label>
+        {error ? <p className="error">{error}</p> : null}
+        <button type="submit" disabled={save.isPending}>
+          Create
+        </button>
+      </form>
+    )
+  }
 
   return (
-    <form className="people-form" onSubmit={onSubmit}>
+    <div className="people-form">
+      <div className="people-chrome">
       <header className="people-detail-head">
         {onClose ? (
           <button type="button" className="people-close" onClick={onClose}>
@@ -158,100 +248,108 @@ export function PersonDossier({ personId, onCreated, onDeleted, onClose }: Props
           </button>
         ) : null}
         <span className="people-avatar" aria-hidden>
-          {personInitials(person.data?.name || title)}
+          {personInitials(title)}
         </span>
-        <div>
-          <h2>{title}</h2>
-          {subtitle ? <p>{subtitle}</p> : null}
+        <div className="people-detail-title">
+          <label className="people-name-field">
+            Name
+            <input
+              id="person-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              autoComplete="off"
+            />
+          </label>
+          <p className="people-save-state">{saving ? 'Saving' : 'Saved'}</p>
+        </div>
+        <div className="people-overflow">
+          <button type="button" className="ghost rel-edit" aria-label="More" onClick={() => setMenu((open) => !open)}>
+            <DotsThree size={18} weight="bold" />
+          </button>
+          {menu ? (
+            <div className="people-menu">
+              <button
+                type="button"
+                className="ghost"
+                disabled={remove.isPending}
+                onClick={() => {
+                  setMenu(false)
+                  if (window.confirm('Delete this person?')) remove.mutate()
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
-      <label>
-        Name
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="off" />
-      </label>
-      <label>
-        Born
-        <DateField
-          mode="date"
-          value={form.bornOn}
-          onChange={(next) => setForm({ ...form, bornOn: next, ageYears: '' })}
-        />
-      </label>
-      <label>
-        Age
-        <input
-          type="number"
-          min={0}
-          max={150}
-          value={form.ageYears}
-          onChange={(e) => setForm({ ...form, ageYears: e.target.value, bornOn: '' })}
-        />
-      </label>
-      <label>
-        Profession
-        <input value={form.profession} onChange={(e) => setForm({ ...form, profession: e.target.value })} />
-      </label>
-      <div className="people-pair">
-        <label>
-          Salary USD
-          <input type="number" min={0} step={0.01} value={form.monthlySalaryUsd} onChange={(e) => setForm({ ...form, monthlySalaryUsd: e.target.value })} />
-        </label>
-        <label>
-          Salary RUB
-          <input type="number" min={0} step={0.01} value={form.monthlySalaryRub} onChange={(e) => setForm({ ...form, monthlySalaryRub: e.target.value })} />
-        </label>
-      </div>
-      <RelationField
-        label="Projects"
-        options={(projects.data ?? []).map((row) => ({ id: row.id, name: row.name }))}
-        value={form.projects}
-        onChange={(projects) => setForm({ ...form, projects })}
-        requireComment
-      />
-      <RelationField
-        label="Events"
-        options={(series.data ?? []).map((row) => ({ id: row.id, name: row.title }))}
-        value={form.events}
-        onChange={(events) => setForm({ ...form, events })}
-        requireComment
-      />
-      <RelationField
-        label="Tasks"
-        options={(items.data ?? []).map((row) => ({ id: row.id, name: row.title }))}
-        value={form.items}
-        onChange={(next) => setForm({ ...form, items: next })}
-      />
-      {personId ? (
-        <section>
-          <p className="people-kicker">Log</p>
-          {log.length === 0 ? <p className="people-empty">No notes yet.</p> : null}
-          {log.map((note) => (
-            <article key={note.id} className="people-note">
-              <p className="people-kicker">{noteStamp(note.createdAt)}</p>
-              <p>{note.body}</p>
-              <button type="button" className="ghost" onClick={() => dropNote.mutate(note.id)}>
-                Remove
-              </button>
-            </article>
-          ))}
-          <label>
-            Note
-            <textarea rows={3} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
-          </label>
-          <button type="button" className="ghost" onClick={() => addNote.mutate()} disabled={!noteBody.trim() || addNote.isPending}>
-            Add note
+      <nav className="people-sec-nav" aria-label="Sections">
+        {SECTIONS.map((section) => (
+          <button key={section.id} type="button" className="ghost" onClick={() => jump(section.id)}>
+            {section.label}
           </button>
-        </section>
-      ) : null}
+        ))}
+      </nav>
+      </div>
+      {row ? <PersonOverview person={{ ...row, name: form.name }} /> : null}
+      {row ? <PersonProfessions personId={personId} professions={row.professions ?? []} /> : null}
+      {row ? <PersonContacts personId={personId} contacts={row.contacts ?? []} /> : null}
+      {row ? <PersonSites personId={personId} sites={row.sites ?? []} /> : null}
+      {row ? <PersonNotes personId={personId} notes={notes.data ?? []} /> : null}
+      {row ? <PersonBonds person={row} /> : null}
+      <section id="people-sec-work" className="people-section">
+        <p className="people-kicker">Work</p>
+        <RelationField
+          label="Projects"
+          options={(projects.data ?? []).map((item) => ({ id: item.id, name: item.name }))}
+          value={form.projects}
+          onChange={(next) => setForm({ ...form, projects: next })}
+          requireComment
+        />
+        <RelationField
+          label="Events"
+          options={(series.data ?? []).map((item) => ({ id: item.id, name: item.title }))}
+          value={form.events}
+          onChange={(next) => setForm({ ...form, events: next })}
+          requireComment
+        />
+        <RelationField
+          label="Tasks"
+          options={(items.data ?? []).map((item) => ({ id: item.id, name: item.title }))}
+          value={form.items}
+          onChange={(next) => setForm({ ...form, items: next })}
+        />
+      </section>
+      <PersonLog bonds={row?.bonds ?? []} />
+      <section className="people-section">
+        <p className="people-kicker">Born</p>
+        <div className="people-pair">
+          <label>
+            Born
+            <DateField
+              mode="date"
+              value={form.bornOn}
+              onChange={(next) => setForm({ ...form, bornOn: next, ageYears: next ? String(ageFromBornOn(next)) : '' })}
+            />
+          </label>
+          <label>
+            Age
+            <input
+              type="number"
+              min={0}
+              max={150}
+              value={form.ageYears}
+              onChange={(e) => {
+                const raw = e.target.value
+                const years = Number(raw)
+                const bornOn = raw !== '' && Number.isFinite(years) && years >= 0 && years <= 150 ? presumeBornOn(years) : ''
+                setForm({ ...form, ageYears: raw, bornOn })
+              }}
+            />
+          </label>
+        </div>
+      </section>
       {error ? <p className="error">{error}</p> : null}
-      <button type="submit" disabled={save.isPending}>
-        {personId ? 'Save' : 'Create'}
-      </button>
-      {personId ? (
-        <button type="button" className="ghost" onClick={() => remove.mutate()} disabled={remove.isPending}>
-          Delete
-        </button>
-      ) : null}
-    </form>
+    </div>
   )
 }

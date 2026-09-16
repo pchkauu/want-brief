@@ -9,13 +9,12 @@ import (
 	"github.com/pchkauu/want-brief/internal/domain"
 )
 
-const personCols = `id, name, born_on, age_years, profession, monthly_salary_usd, monthly_salary_rub, created_at, updated_at`
+const personCols = `id, name, born_on, created_at, updated_at`
 
 func scanPerson(scan func(dest ...any) error) (domain.Person, error) {
 	var p domain.Person
 	err := scan(
-		&p.ID, &p.Name, &p.BornOn, &p.AgeYears, &p.Profession,
-		&p.MonthlySalaryUSD, &p.MonthlySalaryRUB, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.Name, &p.BornOn, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		return p, err
@@ -30,6 +29,9 @@ func (s *Store) GetPerson(ctx context.Context, id uuid.UUID) (domain.Person, err
 	}
 	out := []domain.Person{p}
 	if err := s.attachPersonLinks(ctx, out); err != nil {
+		return domain.Person{}, err
+	}
+	if err := s.attachPersonDossier(ctx, &out[0]); err != nil {
 		return domain.Person{}, err
 	}
 	return out[0].WithAge(time.Now().UTC()), nil
@@ -55,6 +57,9 @@ func (s *Store) ListPeople(ctx context.Context) ([]domain.Person, error) {
 	if err := s.attachPersonLinks(ctx, out); err != nil {
 		return nil, err
 	}
+	if err := s.attachPersonListExtras(ctx, out); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	for i := range out {
 		out[i] = out[i].WithAge(now)
@@ -69,9 +74,9 @@ func (s *Store) CreatePerson(ctx context.Context, p domain.Person) (domain.Perso
 	links := p
 	p, err := scanPerson(s.pool.QueryRow(ctx, `
 		INSERT INTO people (`+personCols+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		VALUES ($1,$2,$3,$4,$5)
 		RETURNING `+personCols+`
-	`, p.ID, p.Name, p.BornOn, p.AgeYears, p.Profession, p.MonthlySalaryUSD, p.MonthlySalaryRUB, p.CreatedAt, p.UpdatedAt).Scan)
+	`, p.ID, p.Name, p.BornOn, p.CreatedAt, p.UpdatedAt).Scan)
 	if err != nil {
 		return domain.Person{}, err
 	}
@@ -88,10 +93,10 @@ func (s *Store) UpdatePerson(ctx context.Context, p domain.Person) (domain.Perso
 	links := p
 	_, err := scanPerson(s.pool.QueryRow(ctx, `
 		UPDATE people
-		SET name=$2, born_on=$3, age_years=$4, profession=$5, monthly_salary_usd=$6, monthly_salary_rub=$7, updated_at=$8
+		SET name=$2, born_on=$3, updated_at=$4
 		WHERE id=$1
 		RETURNING `+personCols+`
-	`, p.ID, p.Name, p.BornOn, p.AgeYears, p.Profession, p.MonthlySalaryUSD, p.MonthlySalaryRUB, p.UpdatedAt).Scan)
+	`, p.ID, p.Name, p.BornOn, p.UpdatedAt).Scan)
 	if err != nil {
 		return domain.Person{}, mapErr(err)
 	}
@@ -157,6 +162,86 @@ func (s *Store) replacePersonLinks(ctx context.Context, p domain.Person) error {
 		return err
 	}
 	return s.replaceLinks(ctx, "person_items", "person_id", "item_id", p.ID, p.ItemIDs)
+}
+
+func (s *Store) attachPersonListExtras(ctx context.Context, people []domain.Person) error {
+	if len(people) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(people))
+	index := make(map[uuid.UUID]int, len(people))
+	for i, p := range people {
+		ids[i] = p.ID
+		index[p.ID] = i
+		people[i].Contacts = []domain.PersonContact{}
+		people[i].Sites = []domain.PersonSite{}
+		people[i].Bonds = []domain.PersonBond{}
+		people[i].Professions = []domain.PersonProfession{}
+	}
+	contacts, err := s.contactsByPeople(ctx, ids)
+	if err != nil {
+		return err
+	}
+	sites, err := s.sitesByPeople(ctx, ids)
+	if err != nil {
+		return err
+	}
+	meBonds, err := s.meBondsByPeople(ctx, ids)
+	if err != nil {
+		return err
+	}
+	notes, err := s.lastNotesByPeople(ctx, ids)
+	if err != nil {
+		return err
+	}
+	profs, err := s.professionsByPeople(ctx, ids, true)
+	if err != nil {
+		return err
+	}
+	for id, list := range contacts {
+		people[index[id]].Contacts = list
+	}
+	for id, list := range sites {
+		people[index[id]].Sites = list
+	}
+	for id, list := range profs {
+		people[index[id]].Professions = list
+	}
+	for id, bond := range meBonds {
+		b := bond
+		people[index[id]].MeBond = &b
+	}
+	for id, at := range notes {
+		stamp := at
+		people[index[id]].LastNoteAt = &stamp
+	}
+	return nil
+}
+
+func (s *Store) lastNotesByPeople(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	out := map[uuid.UUID]time.Time{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT person_id, max(created_at)
+		FROM person_notes
+		WHERE person_id = ANY($1)
+		GROUP BY person_id
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) attachPersonIDs(ctx context.Context, table, ownerCol string, owners []uuid.UUID, set func(uuid.UUID, []uuid.UUID)) error {
@@ -312,6 +397,14 @@ func (s *Store) CreatePersonNote(ctx context.Context, n domain.PersonNote) (doma
 	return n, err
 }
 
+func (s *Store) UpdatePersonNote(ctx context.Context, n domain.PersonNote) (domain.PersonNote, error) {
+	err := s.pool.QueryRow(ctx, `
+		UPDATE person_notes SET body=$2 WHERE id=$1
+		RETURNING id, person_id, body, created_at
+	`, n.ID, n.Body).Scan(&n.ID, &n.PersonID, &n.Body, &n.CreatedAt)
+	return n, mapErr(err)
+}
+
 func (s *Store) DeletePersonNote(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM person_notes WHERE id=$1`, id)
 	if err != nil {
@@ -351,6 +444,9 @@ func (r PersonNoteRepo) ListByPerson(ctx context.Context, personID uuid.UUID) ([
 }
 func (r PersonNoteRepo) Create(ctx context.Context, note domain.PersonNote) (domain.PersonNote, error) {
 	return r.Store.CreatePersonNote(ctx, note)
+}
+func (r PersonNoteRepo) Update(ctx context.Context, note domain.PersonNote) (domain.PersonNote, error) {
+	return r.Store.UpdatePersonNote(ctx, note)
 }
 func (r PersonNoteRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.Store.DeletePersonNote(ctx, id)

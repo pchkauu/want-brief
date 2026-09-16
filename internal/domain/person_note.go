@@ -30,3 +30,12 @@ func NewPersonNote(personID uuid.UUID, body string) (PersonNote, error) {
 		CreatedAt: time.Now().UTC(),
 	}, nil
 }
+
+func (n *PersonNote) Apply(body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("%w: note body", ErrInvalid)
+	}
+	n.Body = body
+	return nil
+}

@@ -4,6 +4,10 @@ import type {
   CheckinKind,
   Person,
   PersonNote,
+  PersonContact,
+  PersonSite,
+  PersonBond,
+  PersonProfession,
   Item,
   ItemKind,
   ItemNote,
@@ -160,6 +164,32 @@ export const api = {
     request<PersonNote>(`/api/people/${id}/notes`, { method: 'POST', body: JSON.stringify({ body }) }),
   deletePersonNote: (id: string, noteId: string) =>
     request(`/api/people/${id}/notes/${noteId}`, { method: 'DELETE' }),
+  patchPersonNote: (id: string, noteId: string, body: string) =>
+    request<PersonNote>(`/api/people/${id}/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify({ body }) }),
+  createPersonProfession: (id: string, body: Record<string, unknown>) =>
+    request<PersonProfession>(`/api/people/${id}/professions`, { method: 'POST', body: JSON.stringify(body) }),
+  patchPersonProfession: (id: string, professionId: string, body: Record<string, unknown>) =>
+    request<PersonProfession>(`/api/people/${id}/professions/${professionId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deletePersonProfession: (id: string, professionId: string) =>
+    request(`/api/people/${id}/professions/${professionId}`, { method: 'DELETE' }),
+  createPersonContact: (id: string, body: Record<string, unknown>) =>
+    request<PersonContact>(`/api/people/${id}/contacts`, { method: 'POST', body: JSON.stringify(body) }),
+  patchPersonContact: (id: string, contactId: string, body: Record<string, unknown>) =>
+    request<PersonContact>(`/api/people/${id}/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deletePersonContact: (id: string, contactId: string) =>
+    request(`/api/people/${id}/contacts/${contactId}`, { method: 'DELETE' }),
+  createPersonSite: (id: string, body: Record<string, unknown>) =>
+    request<PersonSite>(`/api/people/${id}/sites`, { method: 'POST', body: JSON.stringify(body) }),
+  patchPersonSite: (id: string, siteId: string, body: Record<string, unknown>) =>
+    request<PersonSite>(`/api/people/${id}/sites/${siteId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deletePersonSite: (id: string, siteId: string) =>
+    request(`/api/people/${id}/sites/${siteId}`, { method: 'DELETE' }),
+  createPersonBond: (id: string, body: Record<string, unknown>) =>
+    request<PersonBond>(`/api/people/${id}/bonds`, { method: 'POST', body: JSON.stringify(body) }),
+  patchPersonBond: (id: string, bondId: string, body: Record<string, unknown>) =>
+    request<PersonBond>(`/api/people/${id}/bonds/${bondId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  endPersonBond: (id: string, bondId: string, body: Record<string, unknown>) =>
+    request<PersonBond>(`/api/people/${id}/bonds/${bondId}/end`, { method: 'POST', body: JSON.stringify(body) }),
   load: (from?: string, to?: string) => {
     const params = new URLSearchParams()
     if (from) params.set('from', from)
