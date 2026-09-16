@@ -1,17 +1,26 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { api } from './api'
-import { InboxScreen } from './features/inbox/InboxScreen'
-import { LoadScreen } from './features/load/LoadScreen'
 import { LoginScreen } from './features/login/LoginScreen'
 import { MatrixScreen } from './features/matrix/MatrixScreen'
-import { NotesScreen } from './features/notes/NotesScreen'
+import { ProjectsScreen } from './features/projects/ProjectsScreen'
+import { ProjectNotesPage } from './features/projects/ProjectNotesPage'
+import { ProjectPage } from './features/projects/ProjectPage'
 import { SettingsScreen } from './features/sources/SettingsScreen'
+import { TasksScreen } from './features/tasks/TasksScreen'
+import { EventsScreen } from './features/events/EventsScreen'
+import { PeopleScreen } from './features/people/PeopleScreen'
 import { TodayScreen } from './features/today/TodayScreen'
-import { TrackScreen } from './features/track/TrackScreen'
+import { PulseScreen } from './features/pulse/PulseScreen'
+import { ScheduleScreen } from './features/schedule/ScheduleScreen'
 import { Shell } from './shared/Shell'
 
 const client = new QueryClient()
+
+function TaskNotesRedirect() {
+  const { id } = useParams()
+  return <Navigate to={id ? `/tasks/${id}` : '/tasks'} replace />
+}
 
 function Gate() {
   const me = useQuery({
@@ -37,11 +46,23 @@ export default function App() {
           <Route element={<Gate />}>
             <Route path="/" element={<Navigate to="/today" replace />} />
             <Route path="/today" element={<TodayScreen />} />
-            <Route path="/inbox" element={<InboxScreen />} />
+            <Route path="/events" element={<EventsScreen />} />
+            <Route path="/events/:id" element={<EventsScreen />} />
+            <Route path="/schedule" element={<ScheduleScreen />} />
+            <Route path="/projects" element={<ProjectsScreen />} />
+            <Route path="/projects/:id/notes" element={<ProjectNotesPage />} />
+            <Route path="/projects/:id" element={<ProjectPage />} />
+            <Route path="/people" element={<PeopleScreen />} />
+            <Route path="/people/:id" element={<PeopleScreen />} />
+            <Route path="/tasks" element={<TasksScreen />} />
+            <Route path="/tasks/:id" element={<TasksScreen />} />
+            <Route path="/tasks/:id/notes" element={<TaskNotesRedirect />} />
+            <Route path="/inbox" element={<Navigate to="/tasks" replace />} />
             <Route path="/matrix" element={<MatrixScreen />} />
-            <Route path="/track" element={<TrackScreen />} />
-            <Route path="/notes" element={<NotesScreen />} />
-            <Route path="/load" element={<LoadScreen />} />
+            <Route path="/track" element={<Navigate to="/tasks" replace />} />
+            <Route path="/pulse" element={<PulseScreen />} />
+            <Route path="/notes" element={<Navigate to="/pulse" replace />} />
+            <Route path="/load" element={<Navigate to="/pulse" replace />} />
             <Route path="/settings" element={<SettingsScreen />} />
           </Route>
         </Routes>

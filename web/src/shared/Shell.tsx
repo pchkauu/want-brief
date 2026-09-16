@@ -1,67 +1,84 @@
+import {
+  CalendarBlank,
+  CalendarDots,
+  ChartBar,
+  CheckSquare,
+  GridFour,
+  Heartbeat,
+  Plugs,
+  SignOut,
+  SquaresFour,
+  Sun,
+  Users,
+  type Icon,
+} from '@phosphor-icons/react'
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { CheckinDialog } from '../features/today/CheckinDialog'
 
-const links = [
-  { to: '/today', label: 'Today' },
-  { to: '/inbox', label: 'Inbox' },
-  { to: '/matrix', label: 'Priorities' },
-  { to: '/track', label: 'Focus' },
-  { to: '/notes', label: 'Notes' },
-  { to: '/load', label: 'Load' },
-  { to: '/settings', label: 'Sources' },
+const links: { to: string; label: string; Icon: Icon }[] = [
+  { to: '/today', label: 'Today', Icon: Sun },
+  { to: '/events', label: 'Events', Icon: CalendarBlank },
+  { to: '/schedule', label: 'Schedule', Icon: CalendarDots },
+  { to: '/projects', label: 'Projects', Icon: SquaresFour },
+  { to: '/people', label: 'People', Icon: Users },
+  { to: '/tasks', label: 'Tasks', Icon: CheckSquare },
+  { to: '/matrix', label: 'Priorities', Icon: GridFour },
+  { to: '/pulse', label: 'Pulse', Icon: ChartBar },
+  { to: '/settings', label: 'Sources', Icon: Plugs },
 ]
-
-function currentTheme(): 'dark' | 'light' {
-  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
-}
 
 export function Shell() {
   const navigate = useNavigate()
-  const [theme, setTheme] = useState<'dark' | 'light'>(currentTheme)
-
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.dataset.theme = next
-    localStorage.setItem('wb-theme', next)
-    setTheme(next)
-  }
+  const [checkinOpen, setCheckinOpen] = useState(false)
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src="/logo.png" alt="" width={40} height={40} />
-          <div>
-            <strong>Want Brief</strong>
-            <span>All tasks. One place.</span>
-          </div>
+          <img src="/logo.png" alt="Want Brief" width={32} height={32} />
         </div>
         <nav>
           {links.map((link) => (
-            <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {link.label}
+            <NavLink
+              key={link.to}
+              to={link.to}
+              title={link.label}
+              aria-label={link.label}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              <link.Icon size={22} weight="light" aria-hidden />
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-foot">
-          <button type="button" className="ghost" onClick={toggleTheme}>
-            {theme === 'dark' ? 'Light' : 'Dark'}
+          <button
+            type="button"
+            className="ghost"
+            title="Check-in"
+            aria-label="Check-in"
+            onClick={() => setCheckinOpen(true)}
+          >
+            <Heartbeat size={22} weight="light" aria-hidden />
           </button>
           <button
             type="button"
             className="ghost"
+            title="Log out"
+            aria-label="Log out"
             onClick={() => {
               void api.logout().finally(() => navigate('/login'))
             }}
           >
-            Log out
+            <SignOut size={22} weight="light" aria-hidden />
           </button>
         </div>
       </aside>
       <main className="stage">
         <Outlet />
       </main>
+      <CheckinDialog open={checkinOpen} onClose={() => setCheckinOpen(false)} />
     </div>
   )
 }

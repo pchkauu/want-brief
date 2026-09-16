@@ -1,0 +1,49 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../../api'
+import { elapsed } from '../../shared/format'
+import type { TimeInterval } from '../../types'
+import { useTaskLogPrompt } from './TaskLogPrompt'
+
+type Props = {
+  itemId: string
+  running?: TimeInterval
+}
+
+export function TaskTimer({ itemId, running }: Props) {
+  const promptLog = useTaskLogPrompt()
+  const queryClient = useQueryClient()
+  const start = useMutation({
+    mutationFn: () => api.startInterval(itemId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['intervals'] })
+    },
+  })
+  const stop = useMutation({
+    mutationFn: () => api.stopInterval(running!.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['intervals'] })
+      void queryClient.invalidateQueries({ queryKey: ['items'] })
+      void queryClient.invalidateQueries({ queryKey: ['load'] })
+      promptLog(itemId)
+    },
+  })
+
+  return (
+    <div
+      className="tasks-timer"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {running ? <span className="mono">{elapsed(running.startedAt)}</span> : null}
+      {running ? (
+        <button type="button" disabled={stop.isPending} onClick={() => stop.mutate()}>
+          Stop
+        </button>
+      ) : (
+        <button type="button" className="ghost" disabled={start.isPending} onClick={() => start.mutate()}>
+          Start
+        </button>
+      )}
+    </div>
+  )
+}

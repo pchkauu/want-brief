@@ -1,22 +1,33 @@
+import { CalendarBlank, Lightning, MinusCircle, UserSwitch, type Icon } from '@phosphor-icons/react'
+import { type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { Window } from '../../shared/Window'
 import type { Item, Quadrant } from '../../types'
+import { PriorityList } from './PriorityList'
+import { itemsInQuadrant, priorityItems } from './rank'
+import './matrix.css'
 
-const cells: { id: Quadrant; title: string; hint: string }[] = [
-  { id: 'do', title: 'Do', hint: 'urgent · important' },
-  { id: 'schedule', title: 'Schedule', hint: 'not urgent · important' },
-  { id: 'delegate', title: 'Delegate', hint: 'urgent · not important' },
-  { id: 'drop', title: 'Drop', hint: 'not urgent · not important' },
+const cells: { id: Quadrant; title: string; hint: string; Icon: Icon }[] = [
+  { id: 'do', title: 'Do', hint: 'urgent, important', Icon: Lightning },
+  { id: 'schedule', title: 'Schedule', hint: 'not urgent, important', Icon: CalendarBlank },
+  { id: 'delegate', title: 'Delegate', hint: 'urgent, not important', Icon: UserSwitch },
+  { id: 'drop', title: 'Drop', hint: 'not urgent, not important', Icon: MinusCircle },
 ]
 
 export function MatrixScreen() {
   const queryClient = useQueryClient()
-  const items = useQuery({ queryKey: ['items'], queryFn: () => api.items({ status: 'open' }) })
+  const items = useQuery({ queryKey: ['items'], queryFn: () => api.items({ openOnly: true }) })
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.patchItem(id, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['items'] }),
+    onSuccess: () => {
+      window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['items'] })
+      }, 0)
+    },
   })
+  const rows = priorityItems(items.data ?? [])
 
   function move(item: Item, quadrant: Quadrant) {
     patch.mutate({
@@ -29,39 +40,55 @@ export function MatrixScreen() {
   }
 
   return (
-    <Window title="Priorities">
-      <div className="matrix">
-        {cells.map((cell) => (
-          <section
-            key={cell.id}
-            className="matrix-cell"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              const id = event.dataTransfer.getData('text/plain')
-              const item = (items.data ?? []).find((row) => row.id === id)
-              if (item) move(item, cell.id)
-            }}
-          >
-            <header>
-              <h3>{cell.title}</h3>
-              <small>{cell.hint}</small>
-            </header>
-            <ul className="list">
-              {(items.data ?? [])
-                .filter((item) => item.quadrant === cell.id)
-                .map((item) => (
-                  <li
-                    key={item.id}
-                    draggable
-                    onDragStart={(event) => event.dataTransfer.setData('text/plain', item.id)}
-                  >
-                    <strong>{item.title}</strong>
-                    <small>{item.sourceName}</small>
-                  </li>
-                ))}
-            </ul>
-          </section>
-        ))}
+    <Window className="priorities-window" kicker="Focus" title="Priorities">
+      <div className="prio-stack">
+        {items.isLoading ? <p className="muted">Loading…</p> : null}
+        {items.isError ? <p className="error">{items.error.message}</p> : null}
+        <div className="prio-matrix">
+          {cells.map((cell, index) => {
+            const listed = itemsInQuadrant(rows, cell.id)
+            return (
+              <section
+                key={cell.id}
+                className={`prio-shell ${cell.id}`}
+                style={{ '--d': index } as CSSProperties}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  const id = event.dataTransfer.getData('text/plain')
+                  const item = rows.find((row) => row.id === id)
+                  if (item) move(item, cell.id)
+                }}
+              >
+                <div className="prio-core">
+                  <header>
+                    <span className="prio-icon" aria-hidden>
+                      <cell.Icon size={18} weight="light" />
+                    </span>
+                    <div>
+                      <h3>{cell.title}</h3>
+                      <small>{cell.hint}</small>
+                    </div>
+                    <span className="mono">{listed.length}</span>
+                  </header>
+                  {listed.length === 0 ? <p className="muted">Empty</p> : null}
+                  <ul>
+                    {listed.map((item) => (
+                      <li
+                        key={item.id}
+                        draggable
+                        onDragStart={(event) => event.dataTransfer.setData('text/plain', item.id)}
+                      >
+                        <Link to={`/tasks/${item.id}`} draggable={false}>{item.title}</Link>
+                        <small>{item.sourceName}</small>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            )
+          })}
+        </div>
+        <PriorityList items={rows} />
       </div>
     </Window>
   )

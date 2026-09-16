@@ -9,11 +9,11 @@ export function SettingsScreen() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
   const [kind, setKind] = useState<'jira' | 'todoist'>('jira')
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
-  const [query, setQuery] = useState('')
-  const [projectName, setProjectName] = useState('')
-  const [hours, setHours] = useState('10')
+  const [projectId, setProjectId] = useState('')
+  const [insecureTls, setInsecureTls] = useState(false)
   const [error, setError] = useState('')
 
   const createSource = useMutation({
@@ -23,11 +23,15 @@ export function SettingsScreen() {
         name,
         baseUrl,
         token,
-        query,
+        email: kind === 'jira' ? email : undefined,
+        projectId,
+        insecureTls: kind === 'jira' ? insecureTls : undefined,
       }),
     onSuccess: () => {
       setName('')
       setToken('')
+      setEmail('')
+      setInsecureTls(false)
       void queryClient.invalidateQueries({ queryKey: ['sources'] })
     },
     onError: (err: Error) => setError(err.message),
@@ -40,28 +44,18 @@ export function SettingsScreen() {
     },
     onError: (err: Error) => setError(err.message),
   })
-  const patchToken = useMutation({
-    mutationFn: ({ id, token }: { id: string; token: string }) => api.patchSource(id, { token }),
+  const patchSource = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, string | boolean> }) => api.patchSource(id, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sources'] }),
+    onError: (err: Error) => setError(err.message),
   })
   const removeSource = useMutation({
     mutationFn: api.deleteSource,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sources'] }),
   })
-  const createProject = useMutation({
-    mutationFn: () =>
-      api.createProject({
-        name: projectName,
-        color: '#5C50FF',
-        targetHoursWeek: Number(hours) || 0,
-      }),
-    onSuccess: () => {
-      setProjectName('')
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-    },
-  })
 
-  const jiraCount = (sources.data ?? []).filter((source) => source.kind === 'jira').length
+  const projectName = new Map((projects.data ?? []).map((project) => [project.id, project.name]))
+  const openProjects = (projects.data ?? []).filter((project) => !project.archivedAt)
 
   function onAddSource(event: FormEvent) {
     event.preventDefault()
@@ -79,21 +73,51 @@ export function SettingsScreen() {
             <div className="grow">
               <strong>{source.name}</strong>
               <small>
-                {source.kind} · {source.hasToken ? 'token set' : 'no token'} ·{' '}
+                {source.kind}
+                {source.projectId ? ` · ${projectName.get(source.projectId) ?? 'project'}` : ''}
+                {source.email ? ` · ${source.email}` : ''}
+                {' · '}
+                {source.connected ? 'connected' : 'no connection'}
+                {source.lastError ? ` · ${source.lastError}` : ''}
+                {' · '}
                 {source.lastSyncAt ? new Date(source.lastSyncAt).toLocaleString() : 'never synced'}
               </small>
             </div>
-            {source.kind === 'local' ? null : (
+            {source.kind === 'manual' ? null : (
               <>
                 <button type="button" onClick={() => sync.mutate(source.id)} disabled={sync.isPending}>
                   Sync
                 </button>
+                {source.kind === 'jira' ? (
+                  <>
+                    <label className="row">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(source.insecureTls)}
+                        onChange={(e) =>
+                          patchSource.mutate({ id: source.id, body: { insecureTls: e.target.checked } })
+                        }
+                      />
+                      Skip TLS verify
+                    </label>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        const next = window.prompt('Email', source.email ?? '')
+                        if (next) patchSource.mutate({ id: source.id, body: { email: next } })
+                      }}
+                    >
+                      Email
+                    </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   className="ghost"
                   onClick={() => {
-                    const next = window.prompt('PAT / API token')
-                    if (next) patchToken.mutate({ id: source.id, token: next })
+                    const next = window.prompt('API token')
+                    if (next) patchSource.mutate({ id: source.id, body: { token: next } })
                   }}
                 >
                   Token
@@ -108,82 +132,48 @@ export function SettingsScreen() {
       </ul>
       <form className="stack" onSubmit={onAddSource}>
         <div className="row">
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as 'jira' | 'todoist')}
-          >
-            <option value="jira" disabled={jiraCount >= 3}>
-              Jira
-            </option>
+          <select value={kind} onChange={(e) => setKind(e.target.value as 'jira' | 'todoist')}>
+            <option value="jira">Jira</option>
             <option value="todoist">Todoist</option>
           </select>
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} required>
+          <option value="">Project</option>
+          {openProjects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
         <input
           placeholder={kind === 'jira' ? 'https://your-domain.atlassian.net' : 'https://api.todoist.com'}
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
         />
+        {kind === 'jira' ? (
+          <>
+            <input
+              placeholder="Atlassian email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <label className="row">
+              <input type="checkbox" checked={insecureTls} onChange={(e) => setInsecureTls(e.target.checked)} />
+              Skip TLS verify
+            </label>
+          </>
+        ) : null}
         <input
-          placeholder="PAT or email:apiToken"
+          placeholder="API token"
           type="password"
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />
-        <input
-          placeholder={kind === 'jira' ? 'JQL filter' : 'Todoist filter (optional)'}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button
-          type="button"
-          disabled={kind === 'jira' && jiraCount >= 3}
-          onClick={() => {
-            setError('')
-            createSource.mutate()
-          }}
-        >
+        <button type="submit" disabled={!projectId || createSource.isPending}>
           Add source
-        </button>
-      </form>
-      <h3>Projects</h3>
-      <ul className="list">
-        {(projects.data ?? []).map((project) => (
-          <li key={project.id}>
-            <i className="dot" style={{ background: project.color }} />
-            <div className="grow">
-              <strong>{project.name}</strong>
-              <small>{project.targetHoursWeek}h / week planned</small>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <form
-        className="toolbar"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (projectName.trim()) createProject.mutate()
-        }}
-      >
-        <input
-          placeholder="Project name"
-          value={projectName}
-          onChange={(e) => setProjectName(e.target.value)}
-        />
-        <input
-          type="number"
-          min={0}
-          step={0.5}
-          value={hours}
-          onChange={(e) => setHours(e.target.value)}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (projectName.trim()) createProject.mutate()
-          }}
-        >
-          Add
         </button>
       </form>
     </Window>
