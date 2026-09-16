@@ -23,6 +23,20 @@ func NewOpenInterval(itemID uuid.UUID, at time.Time) TimeInterval {
 	}
 }
 
+func NewClosedInterval(itemID uuid.UUID, started, ended time.Time) (TimeInterval, error) {
+	start := started.UTC()
+	end := ended.UTC()
+	if !end.After(start) {
+		return TimeInterval{}, fmt.Errorf("%w: end before start", ErrInvalid)
+	}
+	return TimeInterval{
+		ID:        uuid.New(),
+		ItemID:    itemID,
+		StartedAt: start,
+		EndedAt:   &end,
+	}, nil
+}
+
 func (t TimeInterval) Stop(at time.Time) (TimeInterval, error) {
 	if t.EndedAt != nil {
 		return TimeInterval{}, fmt.Errorf("%w: interval already stopped", ErrConflict)
@@ -60,6 +74,14 @@ func clipInterval(started, ended, from, to time.Time) (time.Time, time.Time, boo
 		return time.Time{}, time.Time{}, false
 	}
 	return started, ended, true
+}
+
+func Moscow() *time.Location {
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		return time.FixedZone("MSK", 3*3600)
+	}
+	return loc
 }
 
 func AllocatedSeconds(intervals []TimeInterval, from, to, now time.Time) int64 {

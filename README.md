@@ -4,19 +4,33 @@ Personal load organizer: one inbox for Jira, Todoist, and local work, Eisenhower
 
 ## Run
 
+Live data (`wantbrief`):
+
 ```bash
 cp .env.example .env
 make up
 make api
 ```
 
-In another terminal:
-
 ```bash
 make web
 ```
 
-Open http://127.0.0.1:5173 and sign in with `BOOTSTRAP_PASSWORD` from `.env.example` (`wantbrief`).
+Open http://127.0.0.1:5173.
+
+Scratch (`wantbrief_dev`) in two more terminals:
+
+```bash
+make api-dev
+```
+
+```bash
+make web-dev
+```
+
+Open http://127.0.0.1:5174.
+
+Sign in with `BOOTSTRAP_PASSWORD` from `.env.example` (`wantbrief`). Both stacks can run at once.
 
 ## Sources
 

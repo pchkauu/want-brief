@@ -8,11 +8,12 @@ import (
 )
 
 type ItemFilter struct {
-	SourceID  *uuid.UUID
-	ProjectID *uuid.UUID
-	Kind      *ItemKind
-	Status    *ItemStatus
-	OpenOnly  bool
+	SourceID        *uuid.UUID
+	ProjectID       *uuid.UUID
+	Kind            *ItemKind
+	Status          *ItemStatus
+	OpenOnly        bool
+	IncludeArchived bool
 }
 
 type ItemRepository interface {
@@ -32,13 +33,27 @@ type ProjectRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+type ProjectNoteRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (ProjectNote, error)
+	ListByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectNote, error)
+	Create(ctx context.Context, note ProjectNote) (ProjectNote, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type ItemNoteRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (ItemNote, error)
+	ListByItem(ctx context.Context, itemID uuid.UUID) ([]ItemNote, error)
+	Create(ctx context.Context, note ItemNote) (ItemNote, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
 type SourceRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (Source, error)
 	List(ctx context.Context) ([]Source, error)
 	Create(ctx context.Context, source Source) (Source, error)
 	Update(ctx context.Context, source Source) (Source, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	Local(ctx context.Context) (Source, error)
+	Manual(ctx context.Context) (Source, error)
 }
 
 type NoteRepository interface {
@@ -59,7 +74,35 @@ type IntervalRepository interface {
 
 type StressRepository interface {
 	ListRange(ctx context.Context, from, to time.Time) ([]StressLog, error)
+	Latest(ctx context.Context) ([]StressLog, error)
 	Create(ctx context.Context, log StressLog) (StressLog, error)
+}
+
+type PersonRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (Person, error)
+	List(ctx context.Context) ([]Person, error)
+	Create(ctx context.Context, person Person) (Person, error)
+	Update(ctx context.Context, person Person) (Person, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type JournalRepository interface {
+	List(ctx context.Context) ([]JournalEntry, error)
+}
+
+type PersonNoteRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (PersonNote, error)
+	ListByPerson(ctx context.Context, personID uuid.UUID) ([]PersonNote, error)
+	Create(ctx context.Context, note PersonNote) (PersonNote, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type EventRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (Event, error)
+	List(ctx context.Context) ([]Event, error)
+	Create(ctx context.Context, event Event) (Event, error)
+	Update(ctx context.Context, event Event) (Event, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type UserRepository interface {
@@ -76,6 +119,7 @@ type SessionRepository interface {
 }
 
 type Puller interface {
+	Probe(ctx context.Context, source Source, token string) error
 	Pull(ctx context.Context, source Source, token string) ([]RemoteItem, error)
 }
 

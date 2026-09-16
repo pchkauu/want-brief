@@ -187,7 +187,7 @@ func (r IntervalRepo) Update(ctx context.Context, interval domain.TimeInterval) 
 
 func (s *Store) ListStressRange(ctx context.Context, from, to time.Time) ([]domain.StressLog, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, item_id, level, logged_at
+		SELECT id, item_id, kind, level, logged_at
 		FROM stress_logs
 		WHERE logged_at >= $1 AND logged_at < $2
 		ORDER BY logged_at
@@ -199,7 +199,28 @@ func (s *Store) ListStressRange(ctx context.Context, from, to time.Time) ([]doma
 	var out []domain.StressLog
 	for rows.Next() {
 		var log domain.StressLog
-		if err := rows.Scan(&log.ID, &log.ItemID, &log.Level, &log.LoggedAt); err != nil {
+		if err := rows.Scan(&log.ID, &log.ItemID, &log.Kind, &log.Level, &log.LoggedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, log)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) LatestStress(ctx context.Context) ([]domain.StressLog, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (kind) id, item_id, kind, level, logged_at
+		FROM stress_logs
+		ORDER BY kind, logged_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.StressLog
+	for rows.Next() {
+		var log domain.StressLog
+		if err := rows.Scan(&log.ID, &log.ItemID, &log.Kind, &log.Level, &log.LoggedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, log)
@@ -209,11 +230,11 @@ func (s *Store) ListStressRange(ctx context.Context, from, to time.Time) ([]doma
 
 func (s *Store) CreateStress(ctx context.Context, log domain.StressLog) (domain.StressLog, error) {
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO stress_logs (id, item_id, level, logged_at)
-		VALUES ($1,$2,$3,$4)
-		RETURNING id, item_id, level, logged_at
-	`, log.ID, log.ItemID, log.Level, log.LoggedAt).
-		Scan(&log.ID, &log.ItemID, &log.Level, &log.LoggedAt)
+		INSERT INTO stress_logs (id, item_id, kind, level, logged_at)
+		VALUES ($1,$2,$3,$4,$5)
+		RETURNING id, item_id, kind, level, logged_at
+	`, log.ID, log.ItemID, log.Kind, log.Level, log.LoggedAt).
+		Scan(&log.ID, &log.ItemID, &log.Kind, &log.Level, &log.LoggedAt)
 	return log, err
 }
 
@@ -221,6 +242,9 @@ type StressRepo struct{ *Store }
 
 func (r StressRepo) ListRange(ctx context.Context, from, to time.Time) ([]domain.StressLog, error) {
 	return r.Store.ListStressRange(ctx, from, to)
+}
+func (r StressRepo) Latest(ctx context.Context) ([]domain.StressLog, error) {
+	return r.Store.LatestStress(ctx)
 }
 func (r StressRepo) Create(ctx context.Context, log domain.StressLog) (domain.StressLog, error) {
 	return r.Store.CreateStress(ctx, log)

@@ -14,18 +14,24 @@ import (
 )
 
 type Service struct {
-	Users     domain.UserRepository
-	Sessions  domain.SessionRepository
-	Projects  domain.ProjectRepository
-	Sources   domain.SourceRepository
-	Items     domain.ItemRepository
-	Notes     domain.NoteRepository
-	Intervals domain.IntervalRepository
-	Stress    domain.StressRepository
-	Tokens    domain.TokenBox
-	Pullers   map[domain.SourceKind]domain.Puller
-	Now       func() time.Time
-	Password  string
+	Users        domain.UserRepository
+	Sessions     domain.SessionRepository
+	Projects     domain.ProjectRepository
+	Sources      domain.SourceRepository
+	Items        domain.ItemRepository
+	Notes        domain.NoteRepository
+	Intervals    domain.IntervalRepository
+	Stress       domain.StressRepository
+	Events       domain.EventRepository
+	People       domain.PersonRepository
+	PersonNotes  domain.PersonNoteRepository
+	ProjectNotes domain.ProjectNoteRepository
+	ItemNotes    domain.ItemNoteRepository
+	Journal      domain.JournalRepository
+	Tokens       domain.TokenBox
+	Pullers      map[domain.SourceKind]domain.Puller
+	Now          func() time.Time
+	Password     string
 }
 
 func (s *Service) now() time.Time {
@@ -55,15 +61,15 @@ func (s *Service) EnsureReady(ctx context.Context) error {
 		}
 	}
 
-	if _, err := s.Sources.Local(ctx); err != nil {
+	if _, err := s.Sources.Manual(ctx); err != nil {
 		if err != domain.ErrNotFound {
 			return err
 		}
-		local, err := domain.NewSource(domain.SourceLocal, "Local", "", "")
+		manual, err := domain.NewSource(domain.SourceManual, "Manual", "", "", uuid.Nil, "")
 		if err != nil {
 			return err
 		}
-		if _, err := s.Sources.Create(ctx, local); err != nil {
+		if _, err := s.Sources.Create(ctx, manual); err != nil {
 			return err
 		}
 	}
@@ -73,14 +79,14 @@ func (s *Service) EnsureReady(ctx context.Context) error {
 		return err
 	}
 	if len(projects) == 0 {
-		work, err := domain.NewProject("Work", "#4C4CFF", 30)
+		work, err := domain.NewProject("Work", "#4C4CFF", 30.0/7)
 		if err != nil {
 			return err
 		}
 		if _, err := s.Projects.Create(ctx, work); err != nil {
 			return err
 		}
-		life, err := domain.NewProject("Life", "#7C8CFF", 10)
+		life, err := domain.NewProject("Life", "#7C8CFF", 10.0/7)
 		if err != nil {
 			return err
 		}

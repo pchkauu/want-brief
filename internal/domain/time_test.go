@@ -31,6 +31,21 @@ func TestAllocatedAndWallSeconds(t *testing.T) {
 	}
 }
 
+func TestNewClosedInterval(t *testing.T) {
+	start := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	end := start.Add(45 * time.Minute)
+	interval, err := NewClosedInterval(uuid.New(), start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval.EndedAt == nil || !interval.EndedAt.Equal(end) {
+		t.Fatalf("ended=%v", interval.EndedAt)
+	}
+	if _, err := NewClosedInterval(uuid.New(), end, start); err == nil {
+		t.Fatal("expected invalid")
+	}
+}
+
 func TestStopInterval(t *testing.T) {
 	start := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
 	interval := NewOpenInterval(uuid.New(), start)

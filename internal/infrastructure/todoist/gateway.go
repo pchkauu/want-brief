@@ -31,6 +31,29 @@ type task struct {
 	Priority int `json:"priority"`
 }
 
+func (g *Gateway) Probe(ctx context.Context, source domain.Source, token string) error {
+	base := strings.TrimRight(source.BaseURL, "/")
+	if base == "" {
+		base = "https://api.todoist.com"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/rest/v2/projects", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("todoist probe: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("todoist probe: HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (g *Gateway) Pull(ctx context.Context, source domain.Source, token string) ([]domain.RemoteItem, error) {
 	base := strings.TrimRight(source.BaseURL, "/")
 	if base == "" {
@@ -67,7 +90,7 @@ func (g *Gateway) Pull(ctx context.Context, source domain.Source, token string) 
 		item := domain.RemoteItem{
 			ExternalKey:   task.ID,
 			Title:         task.Content,
-			Status:        domain.StatusOpen,
+			Status:        domain.StatusBacklog,
 			HintImportant: task.Priority >= 3,
 			HintUrgent:    task.Priority == 4,
 		}

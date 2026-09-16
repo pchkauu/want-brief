@@ -19,6 +19,17 @@ func (s *Service) StartInterval(ctx context.Context, itemID uuid.UUID) (domain.T
 	return s.Intervals.Create(ctx, domain.NewOpenInterval(itemID, s.now()))
 }
 
+func (s *Service) LogInterval(ctx context.Context, itemID uuid.UUID, started, ended time.Time) (domain.TimeInterval, error) {
+	if _, err := s.Items.Get(ctx, itemID); err != nil {
+		return domain.TimeInterval{}, err
+	}
+	interval, err := domain.NewClosedInterval(itemID, started, ended)
+	if err != nil {
+		return domain.TimeInterval{}, err
+	}
+	return s.Intervals.Create(ctx, interval)
+}
+
 func (s *Service) StopInterval(ctx context.Context, id uuid.UUID) (domain.TimeInterval, error) {
 	interval, err := s.Intervals.Get(ctx, id)
 	if err != nil {
@@ -55,6 +66,30 @@ func (s *Service) CreateStress(ctx context.Context, level int, itemID *uuid.UUID
 	return created, nil
 }
 
+func (s *Service) CreateCheckin(ctx context.Context, kind string, level int) (domain.StressLog, error) {
+	parsed, err := domain.ParseCheckinKind(kind)
+	if err != nil {
+		return domain.StressLog{}, err
+	}
+	log, err := domain.NewCheckin(parsed, level, nil, s.now())
+	if err != nil {
+		return domain.StressLog{}, err
+	}
+	return s.Stress.Create(ctx, log)
+}
+
+func (s *Service) ListJournal(ctx context.Context) ([]domain.JournalEntry, error) {
+	return s.Journal.List(ctx)
+}
+
+func (s *Service) LatestCheckins(ctx context.Context) (domain.LatestCheckins, error) {
+	logs, err := s.Stress.Latest(ctx)
+	if err != nil {
+		return domain.LatestCheckins{}, err
+	}
+	return domain.LatestFromLogs(logs), nil
+}
+
 func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadReport, error) {
 	if to.IsZero() {
 		to = s.now()
@@ -73,7 +108,7 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 	if err != nil {
 		return domain.LoadReport{}, err
 	}
-	items, err := s.Items.List(ctx, domain.ItemFilter{})
+	items, err := s.Items.List(ctx, domain.ItemFilter{IncludeArchived: true})
 	if err != nil {
 		return domain.LoadReport{}, err
 	}
@@ -134,12 +169,16 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 	byProject := make([]domain.ProjectLoad, 0, len(projects)+1)
 	for _, project := range projects {
 		id := project.ID.String()
+		seconds := projectSeconds[id]
+		if project.ArchivedAt != nil && seconds == 0 {
+			continue
+		}
 		byProject = append(byProject, domain.ProjectLoad{
 			ProjectID:        &id,
 			Name:             project.Name,
 			Color:            project.Color,
 			TargetHoursWeek:  project.TargetHoursWeek,
-			AllocatedSeconds: projectSeconds[id],
+			AllocatedSeconds: seconds,
 		})
 	}
 	if unassigned > 0 {
@@ -150,15 +189,6 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 		})
 	}
 
-	var avg *float64
-	if len(stress) > 0 {
-		sum := 0
-		for _, log := range stress {
-			sum += log.Level
-		}
-		value := float64(sum) / float64(len(stress))
-		avg = &value
-	}
 	if itemLoads == nil {
 		itemLoads = []domain.ItemLoad{}
 	}
@@ -169,6 +199,7 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 		stress = []domain.StressLog{}
 	}
 
+	averages := domain.CheckinAveragesFrom(stress)
 	return domain.LoadReport{
 		From:             from,
 		To:               to,
@@ -176,7 +207,9 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 		WallSeconds:      domain.WallSeconds(intervals, from, to, now),
 		ByProject:        byProject,
 		ByItem:           itemLoads,
+		ByDay:            domain.LoadByDay(intervals, from, to, now),
 		Stress:           stress,
-		AverageStress:    avg,
+		Averages:         averages,
+		AverageStress:    averages.Stress,
 	}, nil
 }

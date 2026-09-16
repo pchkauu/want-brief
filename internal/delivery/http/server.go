@@ -28,8 +28,12 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/projects", s.withAuth(s.listProjects))
 	mux.HandleFunc("POST /api/projects", s.withAuth(s.createProject))
+	mux.HandleFunc("GET /api/projects/{id}", s.withAuth(s.getProject))
 	mux.HandleFunc("PATCH /api/projects/{id}", s.withAuth(s.patchProject))
 	mux.HandleFunc("DELETE /api/projects/{id}", s.withAuth(s.deleteProject))
+	mux.HandleFunc("GET /api/projects/{id}/notes", s.withAuth(s.listProjectNotes))
+	mux.HandleFunc("POST /api/projects/{id}/notes", s.withAuth(s.createProjectNote))
+	mux.HandleFunc("DELETE /api/projects/{id}/notes/{noteId}", s.withAuth(s.deleteProjectNote))
 
 	mux.HandleFunc("GET /api/sources", s.withAuth(s.listSources))
 	mux.HandleFunc("POST /api/sources", s.withAuth(s.createSource))
@@ -39,8 +43,12 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/items", s.withAuth(s.listItems))
 	mux.HandleFunc("POST /api/items", s.withAuth(s.createItem))
+	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.getItem))
 	mux.HandleFunc("PATCH /api/items/{id}", s.withAuth(s.patchItem))
 	mux.HandleFunc("DELETE /api/items/{id}", s.withAuth(s.deleteItem))
+	mux.HandleFunc("GET /api/items/{id}/notes", s.withAuth(s.listItemNotes))
+	mux.HandleFunc("POST /api/items/{id}/notes", s.withAuth(s.createItemNote))
+	mux.HandleFunc("DELETE /api/items/{id}/notes/{noteId}", s.withAuth(s.deleteItemNote))
 
 	mux.HandleFunc("GET /api/notes", s.withAuth(s.listNotes))
 	mux.HandleFunc("POST /api/notes", s.withAuth(s.createNote))
@@ -52,7 +60,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/intervals/{id}/stop", s.withAuth(s.stopInterval))
 
 	mux.HandleFunc("POST /api/stress", s.withAuth(s.createStress))
+	mux.HandleFunc("POST /api/checkins", s.withAuth(s.createCheckin))
+	mux.HandleFunc("GET /api/checkins/latest", s.withAuth(s.latestCheckins))
+	mux.HandleFunc("GET /api/events", s.withAuth(s.listEvents))
+	mux.HandleFunc("GET /api/event-series", s.withAuth(s.listEventSeries))
+	mux.HandleFunc("POST /api/events", s.withAuth(s.createEvent))
+	mux.HandleFunc("GET /api/events/{id}", s.withAuth(s.getEvent))
+	mux.HandleFunc("PATCH /api/events/{id}", s.withAuth(s.patchEvent))
+	mux.HandleFunc("DELETE /api/events/{id}", s.withAuth(s.deleteEvent))
+	mux.HandleFunc("GET /api/people", s.withAuth(s.listPeople))
+	mux.HandleFunc("POST /api/people", s.withAuth(s.createPerson))
+	mux.HandleFunc("GET /api/people/{id}", s.withAuth(s.getPerson))
+	mux.HandleFunc("PATCH /api/people/{id}", s.withAuth(s.patchPerson))
+	mux.HandleFunc("DELETE /api/people/{id}", s.withAuth(s.deletePerson))
+	mux.HandleFunc("GET /api/people/{id}/notes", s.withAuth(s.listPersonNotes))
+	mux.HandleFunc("POST /api/people/{id}/notes", s.withAuth(s.createPersonNote))
+	mux.HandleFunc("DELETE /api/people/{id}/notes/{noteId}", s.withAuth(s.deletePersonNote))
 	mux.HandleFunc("GET /api/load", s.withAuth(s.load))
+	mux.HandleFunc("GET /api/schedule", s.withAuth(s.schedule))
+	mux.HandleFunc("GET /api/journal", s.withAuth(s.listJournal))
 
 	return s.cors(mux)
 }
@@ -139,17 +165,50 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	project, err := s.App.GetProject(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name            string  `json:"name"`
-		Color           string  `json:"color"`
-		TargetHoursWeek float64 `json:"targetHoursWeek"`
+		Name             string               `json:"name"`
+		Color            string               `json:"color"`
+		Description      string               `json:"description"`
+		MonthlyIncomeUSD float64              `json:"monthlyIncomeUsd"`
+		MonthlyIncomeRUB float64              `json:"monthlyIncomeRub"`
+		TargetHoursDay   float64              `json:"targetHoursDay"`
+		Links            []domain.ProjectLink `json:"links"`
+		People           []domain.PersonRel   `json:"people"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
-	project, err := s.App.CreateProject(r.Context(), body.Name, body.Color, body.TargetHoursWeek)
+	people, err := domain.NormalizePersonRels(body.People)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	project, err := s.App.CreateProject(r.Context(), application.ProjectWrite{
+		Name:             body.Name,
+		Color:            body.Color,
+		Description:      body.Description,
+		MonthlyIncomeUSD: body.MonthlyIncomeUSD,
+		MonthlyIncomeRUB: body.MonthlyIncomeRUB,
+		TargetHoursDay:   body.TargetHoursDay,
+		Links:            body.Links,
+		People:           people,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -164,15 +223,36 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name            *string  `json:"name"`
-		Color           *string  `json:"color"`
-		TargetHoursWeek *float64 `json:"targetHoursWeek"`
+		Name             *string               `json:"name"`
+		Color            *string               `json:"color"`
+		Description      *string               `json:"description"`
+		MonthlyIncomeUSD *float64              `json:"monthlyIncomeUsd"`
+		MonthlyIncomeRUB *float64              `json:"monthlyIncomeRub"`
+		TargetHoursDay   *float64              `json:"targetHoursDay"`
+		Links            *[]domain.ProjectLink `json:"links"`
+		People           *[]domain.PersonRel   `json:"people"`
+		Archived         *bool                 `json:"archived"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
-	project, err := s.App.PatchProject(r.Context(), id, body.Name, body.Color, body.TargetHoursWeek)
+	people, err := parseOptionalPersonRels(body.People)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	project, err := s.App.PatchProject(r.Context(), id, application.ProjectPatch{
+		Name:             body.Name,
+		Color:            body.Color,
+		Description:      body.Description,
+		MonthlyIncomeUSD: body.MonthlyIncomeUSD,
+		MonthlyIncomeRUB: body.MonthlyIncomeRUB,
+		TargetHoursDay:   body.TargetHoursDay,
+		Links:            body.Links,
+		People:           people,
+		Archived:         body.Archived,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -187,6 +267,59 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.App.DeleteProject(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listProjectNotes(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	notes, err := s.App.ListProjectNotes(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notes)
+}
+
+func (s *Server) createProjectNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	note, err := s.App.CreateProjectNote(r.Context(), id, body.Body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *Server) deleteProjectNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	noteID, err := uuid.Parse(r.PathValue("noteId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	if err := s.App.DeleteProjectNote(r.Context(), id, noteID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -297,6 +430,12 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.Status = &status
 	}
+	if v := q.Get("openOnly"); v == "true" || v == "1" {
+		filter.OpenOnly = true
+	}
+	if v := q.Get("includeArchived"); v == "true" || v == "1" {
+		filter.IncludeArchived = true
+	}
 	items, err := s.App.ListItems(r.Context(), filter)
 	if err != nil {
 		writeError(w, err)
@@ -334,6 +473,20 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
+func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.App.GetItem(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) patchItem(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -341,27 +494,49 @@ func (s *Server) patchItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Title     *string `json:"title"`
-		Status    *string `json:"status"`
-		Kind      *string `json:"kind"`
-		ProjectID *string `json:"projectId"`
-		Urgent    *bool   `json:"urgent"`
-		Important *bool   `json:"important"`
-		Stress    *int    `json:"stress"`
-		DueAt     *string `json:"dueAt"`
+		Title          *string               `json:"title"`
+		Status         *string               `json:"status"`
+		Kind           *string               `json:"kind"`
+		ProjectID      *string               `json:"projectId"`
+		Urgent         *bool                 `json:"urgent"`
+		Important      *bool                 `json:"important"`
+		Pinned         *bool                 `json:"pinned"`
+		Stress         *int                  `json:"stress"`
+		DueAt          *string               `json:"dueAt"`
+		DevDueAt       *string               `json:"devDueAt"`
+		ReviewDueAt    *string               `json:"reviewDueAt"`
+		TestDueAt      *string               `json:"testDueAt"`
+		Description    *string               `json:"description"`
+		PlannedSeconds *int                  `json:"plannedSeconds"`
+		Links          *[]domain.ProjectLink `json:"links"`
+		PersonIDs      *[]string             `json:"personIds"`
+		ExternalKey    *string               `json:"externalKey"`
+		Archived       *bool                 `json:"archived"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
 	patch := application.ItemPatch{
-		Title:     body.Title,
-		Status:    body.Status,
-		Kind:      body.Kind,
-		Urgent:    body.Urgent,
-		Important: body.Important,
-		Stress:    body.Stress,
+		Title:          body.Title,
+		Status:         body.Status,
+		Kind:           body.Kind,
+		Urgent:         body.Urgent,
+		Important:      body.Important,
+		Pinned:         body.Pinned,
+		Stress:         body.Stress,
+		Description:    body.Description,
+		PlannedSeconds: body.PlannedSeconds,
+		Links:          body.Links,
+		ExternalKey:    body.ExternalKey,
+		Archived:       body.Archived,
 	}
+	ids, err := parseOptionalIDList(body.PersonIDs)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	patch.PersonIDs = ids
 	if body.ProjectID != nil {
 		if *body.ProjectID == "" {
 			patch.ClearProj = true
@@ -390,12 +565,101 @@ func (s *Server) patchItem(w http.ResponseWriter, r *http.Request) {
 			patch.DueAt = &due
 		}
 	}
+	if body.DevDueAt != nil {
+		if *body.DevDueAt == "" {
+			patch.ClearDevDue = true
+		} else {
+			due, err := time.Parse(time.RFC3339, *body.DevDueAt)
+			if err != nil {
+				writeError(w, domain.ErrInvalid)
+				return
+			}
+			patch.DevDueAt = &due
+		}
+	}
+	if body.ReviewDueAt != nil {
+		if *body.ReviewDueAt == "" {
+			patch.ClearReviewDue = true
+		} else {
+			due, err := time.Parse(time.RFC3339, *body.ReviewDueAt)
+			if err != nil {
+				writeError(w, domain.ErrInvalid)
+				return
+			}
+			patch.ReviewDueAt = &due
+		}
+	}
+	if body.TestDueAt != nil {
+		if *body.TestDueAt == "" {
+			patch.ClearTestDue = true
+		} else {
+			due, err := time.Parse(time.RFC3339, *body.TestDueAt)
+			if err != nil {
+				writeError(w, domain.ErrInvalid)
+				return
+			}
+			patch.TestDueAt = &due
+		}
+	}
 	item, err := s.App.PatchItem(r.Context(), id, patch)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listItemNotes(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	notes, err := s.App.ListItemNotes(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notes)
+}
+
+func (s *Server) createItemNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	note, err := s.App.CreateItemNote(r.Context(), id, body.Body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *Server) deleteItemNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	noteID, err := uuid.Parse(r.PathValue("noteId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	if err := s.App.DeleteItemNote(r.Context(), id, noteID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
@@ -500,7 +764,9 @@ func (s *Server) listIntervals(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) startInterval(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ItemID string `json:"itemId"`
+		ItemID    string  `json:"itemId"`
+		StartedAt *string `json:"startedAt"`
+		EndedAt   *string `json:"endedAt"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, err)
@@ -509,6 +775,31 @@ func (s *Server) startInterval(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(body.ItemID)
 	if err != nil {
 		writeError(w, domain.ErrInvalid)
+		return
+	}
+	hasStart := body.StartedAt != nil && *body.StartedAt != ""
+	hasEnd := body.EndedAt != nil && *body.EndedAt != ""
+	if hasStart != hasEnd {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	if hasStart {
+		started, err := time.Parse(time.RFC3339, *body.StartedAt)
+		if err != nil {
+			writeError(w, domain.ErrInvalid)
+			return
+		}
+		ended, err := time.Parse(time.RFC3339, *body.EndedAt)
+		if err != nil {
+			writeError(w, domain.ErrInvalid)
+			return
+		}
+		interval, err := s.App.LogInterval(r.Context(), id, started, ended)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, interval)
 		return
 	}
 	interval, err := s.App.StartInterval(r.Context(), id)
@@ -569,6 +860,120 @@ func (s *Server) createStress(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, log)
 }
 
+func (s *Server) createCheckin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Kind  string `json:"kind"`
+		Level int    `json:"level"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	log, err := s.App.CreateCheckin(r.Context(), body.Kind, body.Level)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, log)
+}
+
+func (s *Server) latestCheckins(w http.ResponseWriter, r *http.Request) {
+	latest, err := s.App.LatestCheckins(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, latest)
+}
+
+func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
+	from, err := parseOptionalTime(r.URL.Query().Get("from"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	to, err := parseOptionalTime(r.URL.Query().Get("to"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	events, err := s.App.ListEventOccurrences(r.Context(), from, to)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) listEventSeries(w http.ResponseWriter, r *http.Request) {
+	events, err := s.App.ListEvents(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	event, err := s.App.GetEvent(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, event)
+}
+
+func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
+	write, err := decodeEventWrite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	event, err := s.App.CreateEvent(r.Context(), write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, event)
+}
+
+func (s *Server) patchEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	write, err := decodeEventWrite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	event, err := s.App.ReplaceEvent(r.Context(), id, write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, event)
+}
+
+func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.App.DeleteEvent(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) load(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var from, to time.Time
@@ -593,6 +998,325 @@ func (s *Server) load(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) schedule(w http.ResponseWriter, r *http.Request) {
+	from, err := parseOptionalTime(r.URL.Query().Get("from"))
+	if err != nil || from.IsZero() {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	to, err := parseOptionalTime(r.URL.Query().Get("to"))
+	if err != nil || to.IsZero() {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	report, err := s.App.Schedule(r.Context(), from, to)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) listJournal(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.App.ListJournal(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+type eventBody struct {
+	Title             string               `json:"title"`
+	Description       string               `json:"description"`
+	Agenda            string               `json:"agenda"`
+	Kind              string               `json:"kind"`
+	Type              string               `json:"type"`
+	ProjectID         *string              `json:"projectId"`
+	StartsAt          string               `json:"startsAt"`
+	DurationSeconds   int                  `json:"durationSeconds"`
+	Recurrence        string               `json:"recurrence"`
+	Links             []domain.ProjectLink `json:"links"`
+	MeetURL           string               `json:"meetUrl"`
+	Involvement       *int                 `json:"involvement"`
+	ActiveStartOffset *int                 `json:"activeStartOffset"`
+	ActiveEndOffset   *int                 `json:"activeEndOffset"`
+	CanSkip           *bool                `json:"canSkip"`
+	People            *[]domain.PersonRel  `json:"people"`
+}
+
+func decodeEventWrite(r *http.Request) (application.EventWrite, error) {
+	var body eventBody
+	if err := decodeJSON(r, &body); err != nil {
+		return application.EventWrite{}, err
+	}
+	startsAt, err := time.Parse(time.RFC3339, body.StartsAt)
+	if err != nil {
+		return application.EventWrite{}, domain.ErrInvalid
+	}
+	projectID, err := parseOptionalProjectID(body.ProjectID)
+	if err != nil {
+		return application.EventWrite{}, err
+	}
+	people, err := parseOptionalPersonRels(body.People)
+	if err != nil {
+		return application.EventWrite{}, err
+	}
+	return application.EventWrite{
+		Title:             body.Title,
+		Description:       body.Description,
+		Agenda:            body.Agenda,
+		Kind:              body.Kind,
+		Type:              body.Type,
+		ProjectID:         projectID,
+		StartsAt:          startsAt,
+		DurationSeconds:   body.DurationSeconds,
+		Recurrence:        body.Recurrence,
+		Links:             body.Links,
+		MeetURL:           body.MeetURL,
+		Involvement:       body.Involvement,
+		ActiveStartOffset: body.ActiveStartOffset,
+		ActiveEndOffset:   body.ActiveEndOffset,
+		CanSkip:           body.CanSkip,
+		People:            people,
+	}, nil
+}
+
+func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {
+	people, err := s.App.ListPeople(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, people)
+}
+
+func (s *Server) getPerson(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	person, err := s.App.GetPerson(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, person)
+}
+
+func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
+	write, err := decodePersonWrite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	person, err := s.App.CreatePerson(r.Context(), write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, person)
+}
+
+func (s *Server) patchPerson(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	write, err := decodePersonWrite(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	person, err := s.App.ReplacePerson(r.Context(), id, write)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, person)
+}
+
+func (s *Server) deletePerson(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.App.DeletePerson(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listPersonNotes(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	notes, err := s.App.ListPersonNotes(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, notes)
+}
+
+func (s *Server) createPersonNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	note, err := s.App.CreatePersonNote(r.Context(), id, body.Body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *Server) deletePersonNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	noteID, err := uuid.Parse(r.PathValue("noteId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	if err := s.App.DeletePersonNote(r.Context(), id, noteID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decodePersonWrite(r *http.Request) (application.PersonWrite, error) {
+	var body struct {
+		Name             string             `json:"name"`
+		BornOn           *string            `json:"bornOn"`
+		AgeYears         *int               `json:"ageYears"`
+		Profession       string             `json:"profession"`
+		MonthlySalaryUSD float64            `json:"monthlySalaryUsd"`
+		MonthlySalaryRUB float64            `json:"monthlySalaryRub"`
+		Projects         []domain.PersonRel `json:"projects"`
+		Events           []domain.PersonRel `json:"events"`
+		ItemIDs          []string           `json:"itemIds"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		return application.PersonWrite{}, err
+	}
+	bornOn, err := parseOptionalDate(body.BornOn)
+	if err != nil {
+		return application.PersonWrite{}, err
+	}
+	projects, err := domain.NormalizePersonRels(body.Projects)
+	if err != nil {
+		return application.PersonWrite{}, err
+	}
+	events, err := domain.NormalizePersonRels(body.Events)
+	if err != nil {
+		return application.PersonWrite{}, err
+	}
+	items, err := parseIDList(body.ItemIDs)
+	if err != nil {
+		return application.PersonWrite{}, err
+	}
+	return application.PersonWrite{
+		Name:             body.Name,
+		BornOn:           bornOn,
+		AgeYears:         body.AgeYears,
+		Profession:       body.Profession,
+		MonthlySalaryUSD: body.MonthlySalaryUSD,
+		MonthlySalaryRUB: body.MonthlySalaryRUB,
+		Projects:         projects,
+		Events:           events,
+		ItemIDs:          items,
+	}, nil
+}
+
+func parseOptionalDate(raw *string) (*time.Time, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	if day, err := time.Parse("2006-01-02", *raw); err == nil {
+		return &day, nil
+	}
+	stamp, err := time.Parse(time.RFC3339, *raw)
+	if err != nil {
+		return nil, domain.ErrInvalid
+	}
+	return &stamp, nil
+}
+
+func parseIDList(raw []string) ([]uuid.UUID, error) {
+	out := make([]uuid.UUID, 0, len(raw))
+	for _, value := range raw {
+		if value == "" {
+			continue
+		}
+		id, err := uuid.Parse(value)
+		if err != nil {
+			return nil, domain.ErrInvalid
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func parseOptionalIDList(raw *[]string) (*[]uuid.UUID, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	ids, err := parseIDList(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &ids, nil
+}
+
+func parseOptionalPersonRels(raw *[]domain.PersonRel) (*[]domain.PersonRel, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	rels, err := domain.NormalizePersonRels(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &rels, nil
+}
+
+func parseOptionalProjectID(raw *string) (*uuid.UUID, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(*raw)
+	if err != nil {
+		return nil, domain.ErrInvalid
+	}
+	return &id, nil
+}
+
+func parseOptionalTime(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, raw)
 }
 
 func parseID(r *http.Request) (uuid.UUID, error) {
@@ -639,7 +1363,7 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if status == http.StatusInternalServerError && strings.Contains(err.Error(), "HTTP") {
 		status = http.StatusBadGateway
-		msg = "source provider error"
+		msg = err.Error()
 	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }
