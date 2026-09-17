@@ -205,8 +205,12 @@ func (s *Service) SyncSource(ctx context.Context, id uuid.UUID) (int, error) {
 		if remoteItem.CreatedAt != nil {
 			item.CreatedAt = remoteItem.CreatedAt.UTC()
 		}
-		if _, err := s.Items.UpsertSynced(ctx, item); err != nil {
+		upserted, err := s.Items.UpsertSynced(ctx, item)
+		if err != nil {
 			return count, err
+		}
+		if upserted.DeletedAt != nil {
+			continue
 		}
 		count++
 	}

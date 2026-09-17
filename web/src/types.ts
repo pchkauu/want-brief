@@ -6,9 +6,10 @@ export type ItemKind =
   | 'initiative'
   | 'life'
 
+export type Occupancy = 'solo' | 'parallel'
+
 export type ItemStatus =
   | 'backlog'
-  | 'clarification'
   | 'needs_grooming'
   | 'to_do'
   | 'in_progress'
@@ -181,6 +182,8 @@ export type Item = {
   externalKey: string
   title: string
   status: ItemStatus
+  occupancy: Occupancy
+  externalStatus: string
   kind: ItemKind
   projectId: string | null
   urgent: boolean
@@ -196,6 +199,7 @@ export type Item = {
   links: ProjectLink[]
   trackedSeconds: number
   archivedAt: string | null
+  deletedAt: string | null
   createdAt: string
   updatedAt: string
   sourceName: string
@@ -204,6 +208,8 @@ export type Item = {
   projectColor: string
   quadrant: Quadrant
   personIds: string[]
+  checkTotal: number
+  checkDone: number
 }
 
 export type CheckinKind = 'stress' | 'focus' | 'energy' | 'interest'
@@ -311,6 +317,16 @@ export function recurrenceLabel(recurrence: EventRecurrence, startsAt: string): 
   return `Every ${day}`
 }
 
+export type ItemCheck = {
+  id: string
+  itemId: string
+  body: string
+  done: boolean
+  position: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type ItemNote = {
   id: string
   itemId: string
@@ -382,6 +398,8 @@ export type ScheduleBlock = {
   late: boolean
   continued: boolean
   continues: boolean
+  lane: number
+  occupancy: Occupancy
 }
 
 export type ScheduleLane = {
@@ -435,7 +453,6 @@ export const KINDS: ItemKind[] = [
 
 export const ITEM_STATUSES: ItemStatus[] = [
   'backlog',
-  'clarification',
   'needs_grooming',
   'to_do',
   'in_progress',
@@ -450,7 +467,7 @@ export const ITEM_STATUSES: ItemStatus[] = [
 
 export function statusesForKind(kind: ItemKind): ItemStatus[] {
   if (kind === 'task') return ITEM_STATUSES
-  return ['backlog', 'clarification', 'needs_grooming', 'to_do', 'in_progress', 'blocked', 'done', 'cancelled']
+  return ['backlog', 'needs_grooming', 'to_do', 'in_progress', 'blocked', 'done', 'cancelled']
 }
 
 export function kindLabel(kind: ItemKind): string {
@@ -458,6 +475,24 @@ export function kindLabel(kind: ItemKind): string {
   return kind
 }
 
+export function occupancyLabel(occupancy: Occupancy): string {
+  return occupancy === 'parallel' ? 'Parallel' : 'Solo'
+}
+
+const STATUS_LABELS: Record<ItemStatus, string> = {
+  backlog: 'Backlog',
+  needs_grooming: 'Needs grooming',
+  to_do: 'To do',
+  in_progress: 'In progress',
+  blocked: 'Blocked',
+  review: 'Review',
+  qa: 'QA',
+  awaiting_decision: 'Awaiting decision',
+  release_candidate: 'Release candidate',
+  done: 'Done',
+  cancelled: 'Cancelled',
+}
+
 export function statusLabel(status: ItemStatus): string {
-  return status.replaceAll('_', ' ')
+  return STATUS_LABELS[status] ?? status.replaceAll('_', ' ')
 }

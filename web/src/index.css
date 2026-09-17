@@ -80,6 +80,15 @@ button.ghost {
   border-color: var(--line);
 }
 button.ghost:hover { background: var(--bg-3); color: var(--ink); }
+button.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
 button.chip {
   background: var(--bg-2);
   color: var(--muted);
@@ -1110,10 +1119,16 @@ a.matrix-cell:hover { background: var(--bg-3); }
 }
 .tasks-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.85rem;
+  max-width: 100%;
+}
+.tasks-head > label {
+  min-width: 0;
+  flex: 1 1 10rem;
 }
 .tasks-form, .tasks-sheet-core label, .tasks-title {
   display: grid;
@@ -1142,11 +1157,46 @@ a.matrix-cell:hover { background: var(--bg-3); }
 .tasks-due {
   color: color-mix(in srgb, var(--muted) calc((1 - var(--due-heat, 0)) * 100%), #e8943a calc(var(--due-heat, 0) * 100%));
 }
-.tasks-due.overdue { color: #e8943a; font-weight: 600; }
+.tasks-due.overdue { color: var(--danger); font-weight: 600; }
+.tasks-due-rail {
+  display: flex;
+  gap: 0.65rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 0.15rem 0 0.45rem;
+}
+.tasks-due-card {
+  flex: 0 0 11.5rem;
+  scroll-snap-align: start;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: color-mix(in srgb, var(--muted) calc((1 - var(--due-heat, 0)) * 100%), #e8943a calc(var(--due-heat, 0) * 100%));
+}
+.tasks-due-card.overdue { color: var(--danger); }
+.tasks-due-card strong {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.tasks-due-remain {
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.tasks-due-rail.compact .tasks-due-card {
+  flex-basis: 6.8rem;
+  padding: 0.45rem 0.55rem;
+  gap: 0.15rem;
+}
+.tasks-due-rail.compact .tasks-due-card strong { font-size: 10px; }
 .tasks-form label.tasks-due {
   color: color-mix(in srgb, var(--muted) calc((1 - var(--due-heat, 0)) * 100%), #e8943a calc(var(--due-heat, 0) * 100%));
 }
-.tasks-form label.tasks-due.overdue { color: #e8943a; }
+.tasks-form label.tasks-due.overdue { color: var(--danger); }
 .tasks-form label.tasks-due input {
   color: inherit;
   border-color: color-mix(in srgb, var(--line) calc((1 - var(--due-heat, 0)) * 100%), #e8943a calc(var(--due-heat, 0) * 100%));
@@ -1162,7 +1212,201 @@ a.matrix-cell:hover { background: var(--bg-3); }
   grid-template-columns: 1fr 1fr;
   gap: 0.55rem;
 }
-.tasks-dossier { display: grid; gap: 1rem; }
+.tasks-dossier {
+  display: grid;
+  gap: 2rem;
+}
+.tasks-work,
+.tasks-setup {
+  display: grid;
+  gap: 1rem;
+  padding: 2px;
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  animation: tasks-up 640ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.tasks-work > *,
+.tasks-setup > *:not(summary) {
+  margin-inline: 1rem;
+}
+.tasks-work > :first-child,
+.tasks-setup > summary {
+  margin-top: 1rem;
+}
+.tasks-work > :last-child,
+.tasks-setup > :last-child {
+  margin-bottom: 1.25rem;
+}
+.tasks-title-display {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.08em;
+  line-height: 1.05;
+  color: var(--ink);
+}
+.tasks-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.tasks-meta .muted { margin: 0; }
+.tasks-icon-btn {
+  min-height: 0;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 12px;
+}
+.tasks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  align-self: end;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.tasks-actions button.ghost {
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tasks-actions button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.tasks-field-hint {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.tasks-field-hint.ok { color: var(--accent-2); }
+.tasks-setup > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.35rem 0;
+}
+.tasks-setup > summary::-webkit-details-marker { display: none; }
+.tasks-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.tasks-check {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.15rem;
+}
+.tasks-check.done .tasks-check-text { color: var(--muted); text-decoration: line-through; }
+.tasks-check-text {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  font-weight: 500;
+}
+.tasks-check-text:hover { background: none; color: inherit; }
+.tasks-check-remove {
+  opacity: 0;
+  min-height: 0;
+  padding: 6px;
+}
+.tasks-check:hover .tasks-check-remove,
+.tasks-check:focus-within .tasks-check-remove { opacity: 1; }
+.tasks-check-draft { display: grid; gap: 0.35rem; }
+.tasks-due-open {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  justify-self: start;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  background: none;
+}
+.tasks-due-open:hover { background: none; color: inherit; }
+.tasks-due-clear {
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  justify-self: start;
+}
+.tasks-due-remain {
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+.tasks-confirm-root {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+}
+.tasks-confirm-back {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0;
+  background: rgba(5, 6, 10, 0.55);
+}
+.tasks-confirm-back:hover { background: rgba(5, 6, 10, 0.55); color: inherit; }
+.tasks-confirm {
+  position: relative;
+  width: min(26rem, 100%);
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border-radius: 1.15rem;
+  background: rgba(9, 10, 13, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.tasks-confirm h3 { margin: 0; font-size: 1.15rem; }
+.tasks-confirm-actions { display: flex; gap: 0.55rem; }
+.tasks-undo {
+  position: fixed;
+  left: 50%;
+  bottom: 1.4rem;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem 0.7rem 1.1rem;
+  border-radius: 999px;
+  background: rgba(9, 10, 13, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  animation: tasks-up 500ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.tasks-undo p { margin: 0; font-size: 13px; }
+.tasks-undo button { min-height: 0; padding: 8px 14px; }
+.tasks-missing { display: grid; gap: 1rem; justify-items: start; }
+.tasks-plan .tasks-kicker { grid-column: 1 / -1; margin: 0; }
 .tasks-note { display: grid; gap: 0.25rem; }
 .tasks-note p { margin: 0; }
 .tasks-stat {

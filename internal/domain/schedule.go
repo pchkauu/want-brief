@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +34,14 @@ type ScheduleLane struct {
 	Blocks       []ScheduleBlock `json:"blocks"`
 }
 
+type ScheduleKind string
+
+const (
+	ScheduleWork     ScheduleKind = "work"
+	ScheduleFollowup ScheduleKind = "followup"
+	parallelLanes                 = 3
+)
+
 type ScheduleBlock struct {
 	ItemID      uuid.UUID `json:"itemId"`
 	Title       string    `json:"title"`
@@ -41,6 +51,8 @@ type ScheduleBlock struct {
 	Late        bool      `json:"late"`
 	Continued   bool      `json:"continued"`
 	Continues   bool      `json:"continues"`
+	Lane        int       `json:"lane"`
+	Occupancy   Occupancy `json:"occupancy"`
 }
 
 type UnplannedItem struct {
@@ -81,7 +93,24 @@ func emptySchedule() Schedule {
 	}
 }
 
+func ParseScheduleKind(raw string) (ScheduleKind, error) {
+	kind := ScheduleKind(strings.TrimSpace(raw))
+	if kind == "" {
+		return ScheduleWork, nil
+	}
+	switch kind {
+	case ScheduleWork, ScheduleFollowup:
+		return kind, nil
+	default:
+		return "", fmt.Errorf("%w: schedule kind", ErrInvalid)
+	}
+}
+
 func BuildSchedule(items []Item, events []EventOccurrence, now, from, to time.Time) Schedule {
+	return BuildKindSchedule(ScheduleWork, items, events, now, from, to)
+}
+
+func BuildKindSchedule(kind ScheduleKind, items []Item, events []EventOccurrence, now, from, to time.Time) Schedule {
 	loc := Moscow()
 	now = now.In(loc)
 	from = from.In(loc)
@@ -89,16 +118,20 @@ func BuildSchedule(items []Item, events []EventOccurrence, now, from, to time.Ti
 	if !to.After(from) {
 		return emptySchedule()
 	}
+	if kind == "" {
+		kind = ScheduleWork
+	}
 
 	var unplanned []UnplannedItem
 	var queue []Item
 	meta := map[string]ScheduleLane{}
 	itemLane := map[uuid.UUID]string{}
 	for _, item := range items {
-		if !scheduleEligible(item) {
+		if !scheduleEligible(item, kind) {
 			continue
 		}
-		missingDue := item.DevDueAt == nil
+		due := packingDue(item, kind)
+		missingDue := due == nil
 		missingPlan := item.PlannedSeconds <= 0
 		if missingDue || missingPlan {
 			unplanned = append(unplanned, UnplannedItem{Item: item, MissingDevDue: missingDue, MissingPlan: missingPlan})
@@ -123,15 +156,15 @@ func BuildSchedule(items []Item, events []EventOccurrence, now, from, to time.Ti
 		}
 	}
 	sort.SliceStable(unplanned, func(i, j int) bool {
-		return scheduleLessItems(unplanned[i].Item, unplanned[j].Item)
+		return scheduleLessItems(unplanned[i].Item, unplanned[j].Item, kind)
 	})
 	sort.SliceStable(queue, func(i, j int) bool {
-		return scheduleLessItems(queue[i], queue[j])
+		return scheduleLessItems(queue[i], queue[j], kind)
 	})
 
 	free := freeWorkSlots(now, events, loc)
-	allBlocks := markContinuation(packLane(queue, cloneSpans(free)))
-	overflow := scheduleOverflow(queue, allBlocks)
+	allBlocks := markContinuation(packItems(queue, cloneSpans(free), kind))
+	overflow := scheduleOverflow(queue, allBlocks, kind)
 	visible := filterBlocks(allBlocks, from, to)
 	lanes := paintLanes(visible, itemLane, meta)
 	if unplanned == nil {
@@ -146,9 +179,17 @@ func BuildSchedule(items []Item, events []EventOccurrence, now, from, to time.Ti
 	}
 }
 
-func scheduleEligible(item Item) bool {
-	if item.Kind != KindTask || item.ArchivedAt != nil {
+func scheduleEligible(item Item, kind ScheduleKind) bool {
+	if item.Kind != KindTask || item.ArchivedAt != nil || item.DeletedAt != nil {
 		return false
+	}
+	if kind == ScheduleFollowup {
+		switch item.Status {
+		case StatusReview, StatusQA, StatusAwaitingDecision:
+			return true
+		default:
+			return false
+		}
 	}
 	switch item.Status {
 	case StatusToDo, StatusInProgress:
@@ -156,6 +197,20 @@ func scheduleEligible(item Item) bool {
 	default:
 		return false
 	}
+}
+
+func packingDue(item Item, kind ScheduleKind) *time.Time {
+	if kind == ScheduleFollowup {
+		switch item.Status {
+		case StatusReview:
+			return item.ReviewDueAt
+		case StatusQA:
+			return item.TestDueAt
+		default:
+			return item.DueAt
+		}
+	}
+	return item.DevDueAt
 }
 
 func remainingSeconds(item Item) int64 {
@@ -173,7 +228,7 @@ func laneKey(id *uuid.UUID) string {
 	return id.String()
 }
 
-func scheduleLessItems(a, b Item) bool {
+func scheduleLessItems(a, b Item, kind ScheduleKind) bool {
 	if a.Pinned != b.Pinned {
 		return a.Pinned
 	}
@@ -181,14 +236,15 @@ func scheduleLessItems(a, b Item) bool {
 	if qa != qb {
 		return qa < qb
 	}
-	if a.DevDueAt == nil && b.DevDueAt != nil {
+	ad, bd := packingDue(a, kind), packingDue(b, kind)
+	if ad == nil && bd != nil {
 		return false
 	}
-	if a.DevDueAt != nil && b.DevDueAt == nil {
+	if ad != nil && bd == nil {
 		return true
 	}
-	if a.DevDueAt != nil && b.DevDueAt != nil && !a.DevDueAt.Equal(*b.DevDueAt) {
-		return a.DevDueAt.Before(*b.DevDueAt)
+	if ad != nil && bd != nil && !ad.Equal(*bd) {
+		return ad.Before(*bd)
 	}
 	as, bs := -1, -1
 	if a.Stress != nil {
@@ -388,37 +444,141 @@ func cloneSpans(in []span) []span {
 	return out
 }
 
-func packLane(items []Item, slots []span) []ScheduleBlock {
+func packItems(items []Item, slots []span, kind ScheduleKind) []ScheduleBlock {
+	exclusive := cloneSpans(slots)
+	tracks := make([][]span, parallelLanes)
+	for i := range tracks {
+		tracks[i] = cloneSpans(slots)
+	}
 	var blocks []ScheduleBlock
-	si := 0
 	for _, item := range items {
-		left := remainingSeconds(item)
-		due := *item.DevDueAt
-		for left > 0 && si < len(slots) {
-			slot := slots[si]
-			if !slot.end.After(slot.start) {
-				si++
-				continue
-			}
-			take := slot.end.Sub(slot.start)
-			max := time.Duration(left) * time.Second
-			if take > max {
-				take = max
-			}
-			end := slot.start.Add(take)
-			blocks = append(blocks, ScheduleBlock{
-				ItemID:      item.ID,
-				Title:       item.Title,
-				ExternalKey: item.ExternalKey,
-				StartsAt:    slot.start.UTC(),
-				EndsAt:      end.UTC(),
-				Late:        end.After(due),
-			})
-			left -= int64(take / time.Second)
-			slots[si].start = end
+		due := packingDue(item, kind)
+		if due == nil {
+			continue
+		}
+		if item.EffectiveOccupancy() == OccupancyParallel {
+			blocks = append(blocks, packParallel(item, *due, &exclusive, tracks)...)
+			continue
+		}
+		blocks = append(blocks, packSolo(item, *due, &exclusive, tracks)...)
+	}
+	return blocks
+}
+
+func packSolo(item Item, due time.Time, exclusive *[]span, tracks [][]span) []ScheduleBlock {
+	left := remainingSeconds(item)
+	var blocks []ScheduleBlock
+	for left > 0 {
+		start, end, ok := takeSlice(exclusive, &left)
+		if !ok {
+			break
+		}
+		blocks = append(blocks, newBlock(item, start, end, due, 0, OccupancySolo))
+		for i := range tracks {
+			tracks[i] = subtractSpan(tracks[i], start, end)
 		}
 	}
 	return blocks
+}
+
+func packParallel(item Item, due time.Time, exclusive *[]span, tracks [][]span) []ScheduleBlock {
+	left := remainingSeconds(item)
+	var blocks []ScheduleBlock
+	for left > 0 {
+		idx := earliestTrack(tracks)
+		if idx < 0 {
+			break
+		}
+		start, end, ok := takeSlice(&tracks[idx], &left)
+		if !ok {
+			break
+		}
+		blocks = append(blocks, newBlock(item, start, end, due, idx, OccupancyParallel))
+		*exclusive = subtractSpan(*exclusive, start, end)
+	}
+	return blocks
+}
+
+func newBlock(item Item, start, end, due time.Time, lane int, occupancy Occupancy) ScheduleBlock {
+	return ScheduleBlock{
+		ItemID:      item.ID,
+		Title:       item.Title,
+		ExternalKey: item.ExternalKey,
+		StartsAt:    start.UTC(),
+		EndsAt:      end.UTC(),
+		Late:        end.After(due),
+		Lane:        lane,
+		Occupancy:   occupancy,
+	}
+}
+
+func takeSlice(slots *[]span, left *int64) (time.Time, time.Time, bool) {
+	for len(*slots) > 0 {
+		slot := &(*slots)[0]
+		if !slot.end.After(slot.start) {
+			*slots = (*slots)[1:]
+			continue
+		}
+		take := slot.end.Sub(slot.start)
+		max := time.Duration(*left) * time.Second
+		if take > max {
+			take = max
+		}
+		start := slot.start
+		end := slot.start.Add(take)
+		slot.start = end
+		*left -= int64(take / time.Second)
+		if !slot.end.After(slot.start) {
+			*slots = (*slots)[1:]
+		}
+		return start, end, true
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+func earliestTrack(tracks [][]span) int {
+	best := -1
+	var bestStart time.Time
+	for i, slots := range tracks {
+		start, ok := firstStart(slots)
+		if !ok {
+			continue
+		}
+		if best < 0 || start.Before(bestStart) {
+			best = i
+			bestStart = start
+		}
+	}
+	return best
+}
+
+func firstStart(slots []span) (time.Time, bool) {
+	for _, slot := range slots {
+		if slot.end.After(slot.start) {
+			return slot.start, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func subtractSpan(slots []span, start, end time.Time) []span {
+	if !end.After(start) {
+		return slots
+	}
+	var out []span
+	for _, slot := range slots {
+		if !slot.end.After(start) || !end.After(slot.start) {
+			out = append(out, slot)
+			continue
+		}
+		if slot.start.Before(start) {
+			out = append(out, span{start: slot.start, end: start})
+		}
+		if slot.end.After(end) {
+			out = append(out, span{start: end, end: slot.end})
+		}
+	}
+	return out
 }
 
 func markContinuation(blocks []ScheduleBlock) []ScheduleBlock {
@@ -488,7 +648,7 @@ func paintLanes(blocks []ScheduleBlock, itemLane map[uuid.UUID]string, meta map[
 	return lanes
 }
 
-func scheduleOverflow(items []Item, blocks []ScheduleBlock) ScheduleOverflow {
+func scheduleOverflow(items []Item, blocks []ScheduleBlock, kind ScheduleKind) ScheduleOverflow {
 	packed := map[uuid.UUID]int64{}
 	late := map[uuid.UUID]int64{}
 	for _, block := range blocks {
@@ -500,10 +660,14 @@ func scheduleOverflow(items []Item, blocks []ScheduleBlock) ScheduleOverflow {
 	}
 	for _, block := range blocks {
 		item, ok := itemByID[block.ItemID]
-		if !ok || item.DevDueAt == nil {
+		if !ok {
 			continue
 		}
-		late[block.ItemID] += lateSeconds(block.StartsAt, block.EndsAt, *item.DevDueAt)
+		due := packingDue(item, kind)
+		if due == nil {
+			continue
+		}
+		late[block.ItemID] += lateSeconds(block.StartsAt, block.EndsAt, *due)
 	}
 	var out ScheduleOverflow
 	for _, item := range items {
@@ -517,12 +681,13 @@ func scheduleOverflow(items []Item, blocks []ScheduleBlock) ScheduleOverflow {
 		}
 		out.ItemCount++
 		out.Seconds += over
-		if item.DevDueAt == nil {
+		due := packingDue(item, kind)
+		if due == nil {
 			continue
 		}
-		due := item.DevDueAt.UTC()
-		if out.FirstDueAt == nil || due.Before(*out.FirstDueAt) {
-			out.FirstDueAt = &due
+		at := due.UTC()
+		if out.FirstDueAt == nil || at.Before(*out.FirstDueAt) {
+			out.FirstDueAt = &at
 		}
 	}
 	return out

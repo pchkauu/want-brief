@@ -93,6 +93,7 @@ func Run(ctx context.Context, cfg Config) error {
 		PersonProfessions: postgres.PersonProfessionRepo{Store: store},
 		ProjectNotes:      postgres.ProjectNoteRepo{Store: store},
 		ItemNotes:         postgres.ItemNoteRepo{Store: store},
+		ItemChecks:        postgres.ItemCheckRepo{Store: store},
 		Journal:           postgres.JournalRepo{Store: store},
 		Tokens:            box,
 		Pullers: map[domain.SourceKind]domain.Puller{

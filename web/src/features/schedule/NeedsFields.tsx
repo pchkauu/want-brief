@@ -1,10 +1,26 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { DateField } from '../../shared/DateField'
 import { moscowYmd } from '../../shared/moscow'
+import { openTask } from '../../shared/taskOverlay'
 import type { UnplannedItem } from '../../types'
 import { compareScheduleItems } from './rank'
+
+function dueField(status: string, kind: 'work' | 'followup'): 'devDueAt' | 'reviewDueAt' | 'testDueAt' | 'dueAt' {
+  if (kind !== 'followup') return 'devDueAt'
+  if (status === 'review') return 'reviewDueAt'
+  if (status === 'qa') return 'testDueAt'
+  return 'dueAt'
+}
+
+function dueTitle(field: ReturnType<typeof dueField>): string {
+  if (field === 'reviewDueAt') return 'Review due'
+  if (field === 'testDueAt') return 'Tests due'
+  if (field === 'dueAt') return 'Task due'
+  return 'Dev due'
+}
 
 function isoFromInput(raw: string): string {
   return new Date(raw).toISOString()
@@ -28,11 +44,13 @@ function nextFriday1800(now = new Date()): string {
   return at.toISOString()
 }
 
-function NeedCard({ row, delay }: { row: UnplannedItem; delay: number }) {
+function NeedCard({ row, delay, kind }: { row: UnplannedItem; delay: number; kind: 'work' | 'followup' }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [due, setDue] = useState('')
   const [hours, setHours] = useState('0')
   const [minutes, setMinutes] = useState('0')
+  const field = dueField(row.item.status, kind)
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.patchItem(row.item.id, body),
     onSuccess: () => {
@@ -41,12 +59,12 @@ function NeedCard({ row, delay }: { row: UnplannedItem; delay: number }) {
     },
   })
   const gaps: string[] = []
-  if (row.missingDevDue) gaps.push('Missing dev due')
+  if (row.missingDevDue) gaps.push(kind === 'followup' ? 'Missing due' : 'Missing dev due')
   if (row.missingPlan) gaps.push('Missing estimate')
 
   function saveDue(raw: string) {
     if (!raw) return
-    patch.mutate({ devDueAt: isoFromInput(raw) })
+    patch.mutate({ [field]: isoFromInput(raw) })
   }
 
   function savePlan(hoursRaw: string, minutesRaw: string) {
@@ -63,17 +81,19 @@ function NeedCard({ row, delay }: { row: UnplannedItem; delay: number }) {
       <div className="sched-need-core">
         <p className="sched-need-eye">{gaps.join(' · ')}</p>
         <strong>
-          {row.item.externalKey ? <span className="mono">[{row.item.externalKey}] </span> : null}
-          {row.item.title}
+          <button type="button" className="ghost" onClick={() => openTask(navigate, row.item.id)}>
+            {row.item.externalKey ? <span className="mono">[{row.item.externalKey}] </span> : null}
+            {row.item.title}
+          </button>
         </strong>
         <small>{row.item.projectName || 'No project'}</small>
         {row.missingDevDue ? (
           <>
             <label>
-              Dev due
+              {dueTitle(field)}
               <DateField mode="datetime" value={due} onChange={setDue} onCommit={saveDue} />
             </label>
-            <button type="button" className="ghost sched-need-chip" onClick={() => patch.mutate({ devDueAt: nextFriday1800() })}>
+            <button type="button" className="ghost sched-need-chip" onClick={() => patch.mutate({ [field]: nextFriday1800() })}>
               Friday 18:00
             </button>
           </>
@@ -131,14 +151,14 @@ function NeedCard({ row, delay }: { row: UnplannedItem; delay: number }) {
   )
 }
 
-export function NeedsFields({ rows }: { rows: UnplannedItem[] }) {
+export function NeedsFields({ rows, kind }: { rows: UnplannedItem[]; kind: 'work' | 'followup' }) {
   if (rows.length === 0) return null
   const ordered = [...rows].sort((a, b) => compareScheduleItems(a.item, b.item))
   return (
     <aside className="sched-needs">
       <p className="sched-need-kicker">Needs fields</p>
       {ordered.map((row, i) => (
-        <NeedCard key={row.item.id} row={row} delay={i} />
+        <NeedCard key={row.item.id} row={row} delay={i} kind={kind} />
       ))}
     </aside>
   )

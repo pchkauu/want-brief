@@ -46,9 +46,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.getItem))
 	mux.HandleFunc("PATCH /api/items/{id}", s.withAuth(s.patchItem))
 	mux.HandleFunc("DELETE /api/items/{id}", s.withAuth(s.deleteItem))
+	mux.HandleFunc("POST /api/items/{id}/undelete", s.withAuth(s.undeleteItem))
 	mux.HandleFunc("GET /api/items/{id}/notes", s.withAuth(s.listItemNotes))
 	mux.HandleFunc("POST /api/items/{id}/notes", s.withAuth(s.createItemNote))
 	mux.HandleFunc("DELETE /api/items/{id}/notes/{noteId}", s.withAuth(s.deleteItemNote))
+	mux.HandleFunc("GET /api/items/{id}/checks", s.withAuth(s.listItemChecks))
+	mux.HandleFunc("POST /api/items/{id}/checks", s.withAuth(s.createItemCheck))
+	mux.HandleFunc("PATCH /api/items/{id}/checks/{checkId}", s.withAuth(s.patchItemCheck))
+	mux.HandleFunc("DELETE /api/items/{id}/checks/{checkId}", s.withAuth(s.deleteItemCheck))
+	mux.HandleFunc("POST /api/items/{id}/sync", s.withAuth(s.syncItem))
 
 	mux.HandleFunc("GET /api/notes", s.withAuth(s.listNotes))
 	mux.HandleFunc("POST /api/notes", s.withAuth(s.createNote))
@@ -449,6 +455,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("includeArchived"); v == "true" || v == "1" {
 		filter.IncludeArchived = true
 	}
+	if v := q.Get("archivedOnly"); v == "true" || v == "1" {
+		filter.ArchivedOnly = true
+	}
 	items, err := s.App.ListItems(r.Context(), filter)
 	if err != nil {
 		writeError(w, err)
@@ -524,6 +533,8 @@ func (s *Server) patchItem(w http.ResponseWriter, r *http.Request) {
 		Links          *[]domain.ProjectLink `json:"links"`
 		PersonIDs      *[]string             `json:"personIds"`
 		ExternalKey    *string               `json:"externalKey"`
+		Occupancy      *string               `json:"occupancy"`
+		ExternalStatus *string               `json:"externalStatus"`
 		Archived       *bool                 `json:"archived"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
@@ -542,6 +553,8 @@ func (s *Server) patchItem(w http.ResponseWriter, r *http.Request) {
 		PlannedSeconds: body.PlannedSeconds,
 		Links:          body.Links,
 		ExternalKey:    body.ExternalKey,
+		Occupancy:      body.Occupancy,
+		ExternalStatus: body.ExternalStatus,
 		Archived:       body.Archived,
 	}
 	ids, err := parseOptionalIDList(body.PersonIDs)
@@ -675,6 +688,100 @@ func (s *Server) deleteItemNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) listItemChecks(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	checks, err := s.App.ListItemChecks(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, checks)
+}
+
+func (s *Server) createItemCheck(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	check, err := s.App.CreateItemCheck(r.Context(), id, body.Body)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, check)
+}
+
+func (s *Server) patchItemCheck(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	checkID, err := uuid.Parse(r.PathValue("checkId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	var body struct {
+		Body *string `json:"body"`
+		Done *bool   `json:"done"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	check, err := s.App.PatchItemCheck(r.Context(), id, checkID, body.Body, body.Done)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, check)
+}
+
+func (s *Server) deleteItemCheck(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	checkID, err := uuid.Parse(r.PathValue("checkId"))
+	if err != nil {
+		writeError(w, domain.ErrInvalid)
+		return
+	}
+	if err := s.App.DeleteItemCheck(r.Context(), id, checkID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) syncItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.App.SyncItem(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -686,6 +793,20 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) undeleteItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.App.UndeleteItem(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
@@ -1024,7 +1145,12 @@ func (s *Server) schedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, domain.ErrInvalid)
 		return
 	}
-	report, err := s.App.Schedule(r.Context(), from, to)
+	kind, err := domain.ParseScheduleKind(r.URL.Query().Get("kind"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	report, err := s.App.Schedule(r.Context(), from, to, kind)
 	if err != nil {
 		writeError(w, err)
 		return

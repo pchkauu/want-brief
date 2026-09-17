@@ -10,12 +10,16 @@ import (
 	"github.com/pchkauu/want-brief/internal/domain"
 )
 
-func (s *Service) Schedule(ctx context.Context, from, to time.Time) (domain.Schedule, error) {
+func (s *Service) Schedule(ctx context.Context, from, to time.Time, kind domain.ScheduleKind) (domain.Schedule, error) {
 	if from.IsZero() || to.IsZero() || !to.After(from) {
 		return domain.Schedule{}, fmt.Errorf("%w: range", domain.ErrInvalid)
 	}
-	kind := domain.KindTask
-	items, err := s.Items.List(ctx, domain.ItemFilter{Kind: &kind, OpenOnly: true})
+	parsed, err := domain.ParseScheduleKind(string(kind))
+	if err != nil {
+		return domain.Schedule{}, err
+	}
+	taskKind := domain.KindTask
+	items, err := s.Items.List(ctx, domain.ItemFilter{Kind: &taskKind, OpenOnly: true})
 	if err != nil {
 		return domain.Schedule{}, err
 	}
@@ -39,7 +43,7 @@ func (s *Service) Schedule(ctx context.Context, from, to time.Time) (domain.Sche
 	if err != nil {
 		return domain.Schedule{}, err
 	}
-	return domain.BuildSchedule(applyOpenTrack(items, open, now), events, now, from, to), nil
+	return domain.BuildKindSchedule(parsed, applyOpenTrack(items, open, now), events, now, from, to), nil
 }
 
 func applyOpenTrack(items []domain.Item, open []domain.TimeInterval, now time.Time) []domain.Item {

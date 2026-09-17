@@ -354,12 +354,14 @@ func scanItem(scanner interface {
 	var item domain.Item
 	var kind, status, sourceKind string
 	var linksRaw []byte
+	var occupancy string
 	err := scanner.Scan(
 		&item.ID, &item.SourceID, &item.ExternalKey, &item.Title, &status, &kind,
 		&item.ProjectID, &item.Urgent, &item.Important, &item.Pinned, &item.Stress, &item.DueAt,
 		&item.DevDueAt, &item.ReviewDueAt, &item.TestDueAt,
 		&item.Description, &item.PlannedSeconds, &linksRaw, &item.TrackedSeconds,
-		&item.ArchivedAt, &item.CreatedAt, &item.UpdatedAt, &item.SourceName, &sourceKind, &item.ProjectName, &item.ProjectColor,
+		&item.ArchivedAt, &item.DeletedAt, &item.CreatedAt, &item.UpdatedAt, &item.SourceName, &sourceKind, &item.ProjectName, &item.ProjectColor,
+		&occupancy, &item.ExternalStatus, &item.CheckTotal, &item.CheckDone,
 	)
 	if err != nil {
 		return item, err
@@ -367,6 +369,7 @@ func scanItem(scanner interface {
 	item.Status = domain.ItemStatus(status)
 	item.Kind = domain.ItemKind(kind)
 	item.SourceKind = domain.SourceKind(sourceKind)
+	item.Occupancy, _ = domain.ParseOccupancy(occupancy)
 	item.Links, err = decodeProjectLinks(linksRaw)
 	if err != nil {
 		return item, err
@@ -381,9 +384,12 @@ SELECT
 	i.dev_due_at, i.review_due_at, i.test_due_at,
 	i.description, i.planned_seconds, i.links,
 	COALESCE(t.tracked_seconds, 0),
-	i.archived_at, i.created_at, i.updated_at,
+	i.archived_at, i.deleted_at, i.created_at, i.updated_at,
 	s.name, s.kind,
-	COALESCE(p.name, ''), COALESCE(p.color, '')
+	COALESCE(p.name, ''), COALESCE(p.color, ''),
+	i.occupancy, i.external_status,
+	COALESCE((SELECT COUNT(*)::int FROM item_checks c WHERE c.item_id = i.id), 0),
+	COALESCE((SELECT COUNT(*)::int FROM item_checks c WHERE c.item_id = i.id AND c.done), 0)
 FROM items i
 JOIN sources s ON s.id = i.source_id
 LEFT JOIN projects p ON p.id = i.project_id
@@ -423,7 +429,7 @@ func (s *Store) GetItem(ctx context.Context, id uuid.UUID) (domain.Item, error) 
 }
 
 func (s *Store) ListItems(ctx context.Context, filter domain.ItemFilter) ([]domain.Item, error) {
-	query := itemSelect + ` WHERE 1=1`
+	query := itemSelect + ` WHERE i.deleted_at IS NULL`
 	args := []any{}
 	n := 1
 	if filter.SourceID != nil {
@@ -449,7 +455,9 @@ func (s *Store) ListItems(ctx context.Context, filter domain.ItemFilter) ([]doma
 	if filter.OpenOnly {
 		query += ` AND i.status NOT IN ('done', 'cancelled')`
 	}
-	if !filter.IncludeArchived {
+	if filter.ArchivedOnly {
+		query += ` AND i.archived_at IS NOT NULL`
+	} else if !filter.IncludeArchived {
 		query += ` AND i.archived_at IS NULL`
 	}
 	query += ` ORDER BY i.updated_at DESC`
@@ -484,12 +492,12 @@ func (s *Store) CreateItem(ctx context.Context, item domain.Item) (domain.Item, 
 		INSERT INTO items (
 			id, source_id, external_key, title, status, kind, project_id,
 			urgent, important, pinned, stress, due_at, dev_due_at, review_due_at, test_due_at,
-			description, planned_seconds, links,
+			description, planned_seconds, links, occupancy, external_status,
 			created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 	`, item.ID, item.SourceID, item.ExternalKey, item.Title, string(item.Status), string(item.Kind),
 		item.ProjectID, item.Urgent, item.Important, item.Pinned, item.Stress, item.DueAt, item.DevDueAt, item.ReviewDueAt, item.TestDueAt,
-		item.Description, item.PlannedSeconds, raw, item.CreatedAt, item.UpdatedAt)
+		item.Description, item.PlannedSeconds, raw, string(item.EffectiveOccupancy()), item.ExternalStatus, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return domain.Item{}, err
 	}
@@ -508,11 +516,12 @@ func (s *Store) UpdateItem(ctx context.Context, item domain.Item) (domain.Item, 
 		UPDATE items SET
 			title=$2, status=$3, kind=$4, project_id=$5, urgent=$6, important=$7, pinned=$8,
 			stress=$9, due_at=$10, dev_due_at=$11, review_due_at=$12, test_due_at=$13,
-			description=$14, planned_seconds=$15, links=$16, external_key=$17, archived_at=$18, updated_at=$19
+			description=$14, planned_seconds=$15, links=$16, external_key=$17, archived_at=$18, deleted_at=$19, updated_at=$20,
+			occupancy=$21, external_status=$22
 		WHERE id=$1
 	`, item.ID, item.Title, string(item.Status), string(item.Kind), item.ProjectID, item.Urgent, item.Important, item.Pinned,
 		item.Stress, item.DueAt, item.DevDueAt, item.ReviewDueAt, item.TestDueAt, item.Description, item.PlannedSeconds, raw,
-		item.ExternalKey, item.ArchivedAt, item.UpdatedAt)
+		item.ExternalKey, item.ArchivedAt, item.DeletedAt, item.UpdatedAt, string(item.EffectiveOccupancy()), item.ExternalStatus)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -550,9 +559,9 @@ func (s *Store) UpsertSynced(ctx context.Context, item domain.Item) (domain.Item
 		INSERT INTO items (
 			id, source_id, external_key, title, status, kind, project_id,
 			urgent, important, pinned, stress, due_at, dev_due_at, review_due_at, test_due_at,
-			description, planned_seconds, links,
+			description, planned_seconds, links, occupancy, external_status,
 			created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (source_id, external_key) WHERE external_key <> ''
 		DO UPDATE SET
 			title = EXCLUDED.title,
@@ -561,10 +570,11 @@ func (s *Store) UpsertSynced(ctx context.Context, item domain.Item) (domain.Item
 			links = EXCLUDED.links,
 			created_at = LEAST(items.created_at, EXCLUDED.created_at),
 			updated_at = EXCLUDED.updated_at
+		WHERE items.deleted_at IS NULL
 		RETURNING id
 	`, uuid.New(), item.SourceID, item.ExternalKey, item.Title, string(item.Status), string(item.Kind),
 		item.ProjectID, item.Urgent, item.Important, item.Pinned, item.Stress, item.DueAt, item.DevDueAt, item.ReviewDueAt, item.TestDueAt,
-		item.Description, item.PlannedSeconds, raw, item.CreatedAt, item.UpdatedAt).Scan(&id)
+		item.Description, item.PlannedSeconds, raw, string(domain.OccupancySolo), item.ExternalStatus, item.CreatedAt, item.UpdatedAt).Scan(&id)
 	if err != nil {
 		return domain.Item{}, err
 	}

@@ -1,9 +1,10 @@
 import { CalendarBlank, Lightning, MinusCircle, UserSwitch, type Icon } from '@phosphor-icons/react'
 import { type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { Window } from '../../shared/Window'
+import { openTask } from '../../shared/taskOverlay'
 import type { Item, Quadrant } from '../../types'
 import { PriorityList } from './PriorityList'
 import { itemsInQuadrant, priorityItems } from './rank'
@@ -17,6 +18,7 @@ const cells: { id: Quadrant; title: string; hint: string; Icon: Icon }[] = [
 ]
 
 export function MatrixScreen() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const items = useQuery({ queryKey: ['items'], queryFn: () => api.items({ openOnly: true }) })
   const patch = useMutation({
@@ -78,7 +80,9 @@ export function MatrixScreen() {
                         draggable
                         onDragStart={(event) => event.dataTransfer.setData('text/plain', item.id)}
                       >
-                        <Link to={`/tasks/${item.id}`} draggable={false}>{item.title}</Link>
+                        <button type="button" className="ghost" onClick={() => openTask(navigate, item.id)}>
+                          {item.title}
+                        </button>
                         <small>{item.sourceName}</small>
                       </li>
                     ))}

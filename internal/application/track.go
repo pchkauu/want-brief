@@ -13,14 +13,14 @@ func (s *Service) ListOpenIntervals(ctx context.Context) ([]domain.TimeInterval,
 }
 
 func (s *Service) StartInterval(ctx context.Context, itemID uuid.UUID) (domain.TimeInterval, error) {
-	if _, err := s.Items.Get(ctx, itemID); err != nil {
+	if _, err := s.GetItem(ctx, itemID); err != nil {
 		return domain.TimeInterval{}, err
 	}
 	return s.Intervals.Create(ctx, domain.NewOpenInterval(itemID, s.now()))
 }
 
 func (s *Service) LogInterval(ctx context.Context, itemID uuid.UUID, started, ended time.Time) (domain.TimeInterval, error) {
-	if _, err := s.Items.Get(ctx, itemID); err != nil {
+	if _, err := s.GetItem(ctx, itemID); err != nil {
 		return domain.TimeInterval{}, err
 	}
 	interval, err := domain.NewClosedInterval(itemID, started, ended)
@@ -56,7 +56,7 @@ func (s *Service) CreateStress(ctx context.Context, level int, itemID *uuid.UUID
 		return domain.StressLog{}, err
 	}
 	if itemID != nil {
-		item, err := s.Items.Get(ctx, *itemID)
+		item, err := s.GetItem(ctx, *itemID)
 		if err == nil {
 			item.Stress = &level
 			item.UpdatedAt = s.now()
@@ -108,7 +108,7 @@ func (s *Service) Load(ctx context.Context, from, to time.Time) (domain.LoadRepo
 	if err != nil {
 		return domain.LoadReport{}, err
 	}
-	items, err := s.Items.List(ctx, domain.ItemFilter{IncludeArchived: true})
+	items, err := s.Items.List(ctx, domain.ItemFilter{})
 	if err != nil {
 		return domain.LoadReport{}, err
 	}

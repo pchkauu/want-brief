@@ -7,9 +7,10 @@ import { useTaskLogPrompt } from './TaskLogPrompt'
 type Props = {
   itemId: string
   running?: TimeInterval
+  prominent?: boolean
 }
 
-export function TaskTimer({ itemId, running }: Props) {
+export function TaskTimer({ itemId, running, prominent }: Props) {
   const promptLog = useTaskLogPrompt()
   const queryClient = useQueryClient()
   const start = useMutation({
@@ -40,7 +41,12 @@ export function TaskTimer({ itemId, running }: Props) {
           Stop
         </button>
       ) : (
-        <button type="button" className="ghost" disabled={start.isPending} onClick={() => start.mutate()}>
+        <button
+          type="button"
+          className={prominent ? undefined : 'ghost'}
+          disabled={start.isPending}
+          onClick={() => start.mutate()}
+        >
           Start
         </button>
       )}

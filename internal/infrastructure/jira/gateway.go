@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -39,17 +40,24 @@ type searchRequest struct {
 type jiraIssue struct {
 	Key    string `json:"key"`
 	Fields struct {
-		Summary  string `json:"summary"`
-		DueDate  string `json:"duedate"`
-		Created  string `json:"created"`
-		Priority *struct {
+		Summary     string          `json:"summary"`
+		Description json.RawMessage `json:"description"`
+		DueDate     string          `json:"duedate"`
+		Created     string          `json:"created"`
+		Priority    *struct {
 			Name string `json:"name"`
 		} `json:"priority"`
 		Status struct {
+			Name           string `json:"name"`
 			StatusCategory struct {
 				Key string `json:"key"`
 			} `json:"statusCategory"`
 		} `json:"status"`
+		Comment *struct {
+			Comments []struct {
+				Body json.RawMessage `json:"body"`
+			} `json:"comments"`
+		} `json:"comment"`
 	} `json:"fields"`
 }
 
@@ -101,6 +109,37 @@ func (g *Gateway) Pull(ctx context.Context, source domain.Source, token string) 
 		return g.pullCloud(ctx, source, token, base)
 	}
 	return g.pullServer(ctx, source, token, base)
+}
+
+func (g *Gateway) Fetch(ctx context.Context, source domain.Source, token, externalKey string) (domain.RemoteItem, error) {
+	key := strings.TrimSpace(externalKey)
+	if key == "" {
+		return domain.RemoteItem{}, fmt.Errorf("%w: external key", domain.ErrInvalid)
+	}
+	base, err := jiraBase(source)
+	if err != nil {
+		return domain.RemoteItem{}, err
+	}
+	api := "/rest/api/2/issue/"
+	if isJiraCloud(source.BaseURL) {
+		api = "/rest/api/3/issue/"
+	}
+	fields := url.Values{"fields": []string{strings.Join(append(jiraFields, "description", "comment"), ",")}}
+	status, raw, err := g.do(ctx, source, http.MethodGet, base+api+url.PathEscape(key)+"?"+fields.Encode(), token, nil)
+	if err != nil {
+		return domain.RemoteItem{}, fmt.Errorf("jira issue: %w", err)
+	}
+	if status >= 300 {
+		return domain.RemoteItem{}, jiraHTTPError("jira issue", status, raw)
+	}
+	if looksLikeHTML(raw) {
+		return domain.RemoteItem{}, fmt.Errorf("jira issue: HTML response")
+	}
+	var issue jiraIssue
+	if err := json.Unmarshal(raw, &issue); err != nil {
+		return domain.RemoteItem{}, fmt.Errorf("jira issue decode: %w", err)
+	}
+	return mapIssueDetailed(base, issue), nil
 }
 
 func (g *Gateway) pullCloud(ctx context.Context, source domain.Source, token, base string) ([]domain.RemoteItem, error) {
@@ -265,6 +304,59 @@ func mapIssue(base string, issue jiraIssue) domain.RemoteItem {
 		item.CreatedAt = &created
 	}
 	return item
+}
+
+func mapIssueDetailed(base string, issue jiraIssue) domain.RemoteItem {
+	item := mapIssue(base, issue)
+	item.ExternalStatus = strings.TrimSpace(issue.Fields.Status.Name)
+	item.Description = jiraText(issue.Fields.Description)
+	if issue.Fields.Comment == nil {
+		return item
+	}
+	for _, comment := range issue.Fields.Comment.Comments {
+		body := jiraText(comment.Body)
+		if body == "" {
+			continue
+		}
+		item.Comments = append(item.Comments, body)
+	}
+	return item
+}
+
+func jiraText(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ""
+	}
+	var plain string
+	if json.Unmarshal(raw, &plain) == nil {
+		return strings.TrimSpace(plain)
+	}
+	var node map[string]any
+	if json.Unmarshal(raw, &node) != nil {
+		return ""
+	}
+	return strings.TrimSpace(walkADF(node))
+}
+
+func walkADF(node map[string]any) string {
+	if text, ok := node["text"].(string); ok {
+		return text
+	}
+	content, ok := node["content"].([]any)
+	if !ok {
+		return ""
+	}
+	var parts []string
+	for _, child := range content {
+		next, ok := child.(map[string]any)
+		if !ok {
+			continue
+		}
+		if piece := walkADF(next); piece != "" {
+			parts = append(parts, piece)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func jiraBase(source domain.Source) (string, error) {

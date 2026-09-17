@@ -31,6 +31,7 @@ type Service struct {
 	PersonProfessions domain.PersonProfessionRepository
 	ProjectNotes      domain.ProjectNoteRepository
 	ItemNotes         domain.ItemNoteRepository
+	ItemChecks        domain.ItemCheckRepository
 	Journal           domain.JournalRepository
 	Tokens            domain.TokenBox
 	Pullers           map[domain.SourceKind]domain.Puller

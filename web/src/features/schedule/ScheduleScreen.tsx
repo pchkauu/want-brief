@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
 import { span } from '../../shared/format'
 import { moscowWeek, moscowYmd, shiftWeeks } from '../../shared/moscow'
+import { openTask } from '../../shared/taskOverlay'
 import { Window } from '../../shared/Window'
 import { NeedsFields } from './NeedsFields'
 import type { ScheduleBlock, ScheduleBusy, ScheduleCapacity, ScheduleLane, ScheduleOverflow } from '../../types'
@@ -80,11 +81,15 @@ function Block({
   const end = endMinutes(row.endsAt, start)
   const top = ((start - START * 60) / 60) * HOUR
   const height = Math.max(((end - start) / 60) * HOUR, 8)
+  const parallel = row.occupancy === 'parallel'
+  const width = parallel ? `calc((100% - 12px) / 3)` : 'calc(100% - 6px)'
+  const left = parallel ? `calc(3px + ${row.lane} * ((100% - 12px) / 3))` : '3px'
   const cls = [
     'sched-block',
     row.late ? 'late' : '',
     row.continued ? 'continued' : '',
     running ? 'running' : '',
+    parallel ? 'parallel' : 'solo',
   ]
     .filter(Boolean)
     .join(' ')
@@ -95,6 +100,9 @@ function Block({
       style={{
         top,
         height,
+        left,
+        width,
+        right: 'auto',
         background: `color-mix(in srgb, ${color || 'var(--accent)'} 18%, transparent)`,
         borderColor: `color-mix(in srgb, ${color || 'var(--accent)'} 45%, transparent)`,
       }}
@@ -163,7 +171,9 @@ function Lane({
         <strong>{lane.projectName}</strong>
         <ol className="sched-hours" aria-hidden>
           {Array.from({ length: HOURS }, (_, i) => (
-            <li key={i}>{String(START + i).padStart(2, '0')}</li>
+            <li key={i} style={{ height: HOUR }}>
+              {String(START + i).padStart(2, '0')}
+            </li>
           ))}
         </ol>
       </div>
@@ -216,6 +226,7 @@ export function ScheduleScreen() {
   const navigate = useNavigate()
   const gantt = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState(() => new Date())
+  const [kind, setKind] = useState<'work' | 'followup'>('work')
   const week = useMemo(() => moscowWeek(anchor), [anchor])
   const today = moscowYmd()
   const intervals = useQuery({
@@ -225,8 +236,8 @@ export function ScheduleScreen() {
   })
   const running = intervals.data ?? []
   const report = useQuery({
-    queryKey: ['schedule', week.from, week.to],
-    queryFn: () => api.schedule(week.from, week.to),
+    queryKey: ['schedule', kind, week.from, week.to],
+    queryFn: () => api.schedule(week.from, week.to, kind),
     refetchInterval: running.length > 0 ? 10_000 : false,
   })
   const lanes = report.data?.lanes ?? []
@@ -238,9 +249,15 @@ export function ScheduleScreen() {
     <Window
       className="sched-window"
       kicker={weekKicker(week.days)}
-      title="Schedule"
+      title={kind === 'followup' ? 'Follow-up' : 'Schedule'}
       actions={
         <div className="sched-tabs">
+          <button type="button" className={kind === 'work' ? 'ghost on' : 'ghost'} onClick={() => setKind('work')}>
+            Work
+          </button>
+          <button type="button" className={kind === 'followup' ? 'ghost on' : 'ghost'} onClick={() => setKind('followup')}>
+            Follow-up
+          </button>
           <button type="button" className="ghost" aria-label="Previous week" onClick={() => setAnchor((d) => shiftWeeks(d, -1))}>
             ‹
           </button>
@@ -306,7 +323,7 @@ export function ScheduleScreen() {
                       delay={i}
                       today={today}
                       runningIds={runningIds}
-                      onOpen={(id) => navigate(`/tasks/${id}`)}
+                      onOpen={(id) => openTask(navigate, id)}
                       onBusy={(id) => navigate(`/events/${id}`)}
                     />
                   ))
@@ -315,7 +332,7 @@ export function ScheduleScreen() {
             ) : null}
           </div>
         </div>
-        <NeedsFields rows={unplanned} />
+        <NeedsFields rows={unplanned} kind={kind} />
       </div>
     </Window>
   )

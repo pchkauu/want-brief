@@ -35,14 +35,17 @@ type Source struct {
 }
 
 type RemoteItem struct {
-	ExternalKey   string
-	Title         string
-	Status        ItemStatus
-	DueAt         *time.Time
-	CreatedAt     *time.Time
-	URL           string
-	HintUrgent    bool
-	HintImportant bool
+	ExternalKey    string
+	Title          string
+	Status         ItemStatus
+	ExternalStatus string
+	Description    string
+	Comments       []string
+	DueAt          *time.Time
+	CreatedAt      *time.Time
+	URL            string
+	HintUrgent     bool
+	HintImportant  bool
 }
 
 func ParseSourceKind(raw string) (SourceKind, error) {

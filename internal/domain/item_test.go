@@ -69,13 +69,35 @@ func TestParseItemStatusForKindAllowsNeedsGroomingOnAgreement(t *testing.T) {
 	}
 }
 
-func TestParseItemStatusForKindAllowsClarificationOnAgreement(t *testing.T) {
-	status, err := ParseItemStatusForKind(string(StatusClarification), KindAgreement)
+func TestParseItemStatusRejectsClarification(t *testing.T) {
+	if _, err := ParseItemStatus("clarification"); err == nil {
+		t.Fatal("expected invalid status")
+	}
+}
+
+func TestNewLocalItemStartsSolo(t *testing.T) {
+	item, err := NewLocalItem(uuid.New(), "Ship", KindTask)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status != StatusClarification {
-		t.Fatalf("status %s", status)
+	if item.Occupancy != OccupancySolo {
+		t.Fatalf("occupancy %s", item.Occupancy)
+	}
+}
+
+func TestParseOccupancyDefaultsSolo(t *testing.T) {
+	got, err := ParseOccupancy("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != OccupancySolo {
+		t.Fatalf("occupancy %s", got)
+	}
+}
+
+func TestParseOccupancyRejectsUnknown(t *testing.T) {
+	if _, err := ParseOccupancy("busy"); err == nil {
+		t.Fatal("expected invalid occupancy")
 	}
 }
 
@@ -138,6 +160,38 @@ func TestItemArchiveSetsTimeOnce(t *testing.T) {
 	item.Archive(first.Add(time.Hour))
 	if !item.ArchivedAt.Equal(first) {
 		t.Fatalf("second archive moved time to %v", item.ArchivedAt)
+	}
+}
+
+func TestItemDeleteSetsTimeOnce(t *testing.T) {
+	item, err := NewLocalItem(uuid.New(), "Ship", KindTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
+	item.Delete(first)
+	if item.DeletedAt == nil || !item.DeletedAt.Equal(first) {
+		t.Fatalf("deleted at %v", item.DeletedAt)
+	}
+	item.Delete(first.Add(time.Hour))
+	if !item.DeletedAt.Equal(first) {
+		t.Fatalf("second delete moved time to %v", item.DeletedAt)
+	}
+}
+
+func TestItemUndeleteClearsDeleted(t *testing.T) {
+	item, err := NewLocalItem(uuid.New(), "Ship", KindTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
+	item.Delete(first)
+	item.Undelete(first.Add(time.Hour))
+	if item.DeletedAt != nil {
+		t.Fatalf("still deleted %v", item.DeletedAt)
+	}
+	if !item.UpdatedAt.Equal(first.Add(time.Hour)) {
+		t.Fatalf("updated at %v", item.UpdatedAt)
 	}
 }
 

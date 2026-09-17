@@ -37,7 +37,6 @@ export function elapsed(startedAt: string, now = Date.now()): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-const FAR_MS = 14 * 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 export function dueHeat(iso: string | null, status: string, now = Date.now()): number {
@@ -46,8 +45,20 @@ export function dueHeat(iso: string | null, status: string, now = Date.now()): n
   if (Number.isNaN(due)) return 0
   if (due <= now) return 1
   const remain = due - now
-  if (remain >= FAR_MS) return 0
-  return 1 - remain / FAR_MS
+  if (remain >= WEEK_MS) return 0
+  return 1 - remain / WEEK_MS
+}
+
+export function dueRemain(iso: string | null, now = Date.now()): string {
+  if (!iso) return ''
+  const due = new Date(iso).getTime()
+  if (Number.isNaN(due)) return ''
+  const diff = due - now
+  const abs = Math.abs(diff)
+  const d = Math.floor(abs / (24 * 60 * 60 * 1000))
+  const h = Math.floor((abs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+  const label = d > 0 && h > 0 ? `${d}d ${h}h` : d > 0 ? `${d}d` : `${Math.max(h, 0)}h`
+  return diff < 0 ? `-${label}` : label
 }
 
 export function dueWithinWeek(iso: string | null, now = Date.now()): boolean {

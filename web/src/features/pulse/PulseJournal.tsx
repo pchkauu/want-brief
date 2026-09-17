@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api } from '../../api'
+import { taskHref } from '../../shared/taskOverlay'
 import type { JournalSource } from '../../types'
 
 const filters: { id: JournalSource | 'all'; label: string }[] = [
@@ -12,11 +13,11 @@ const filters: { id: JournalSource | 'all'; label: string }[] = [
   { id: 'person', label: 'Person' },
 ]
 
-function ownerHref(source: JournalSource, ownerId: string | null): string | null {
+function ownerHref(source: JournalSource, ownerId: string | null, search: string): string | { search: string } | null {
   if (!ownerId) return null
   if (source === 'project') return `/projects/${ownerId}`
   if (source === 'person') return `/people/${ownerId}`
-  if (source === 'item' || source === 'loose') return `/tasks/${ownerId}`
+  if (source === 'item' || source === 'loose') return taskHref(ownerId, search)
   return null
 }
 
@@ -26,6 +27,7 @@ function stamp(iso: string): string {
 
 export function PulseJournal() {
   const queryClient = useQueryClient()
+  const location = useLocation()
   const journal = useQuery({ queryKey: ['journal'], queryFn: api.journal })
   const [filter, setFilter] = useState<(typeof filters)[number]['id']>('all')
   const [body, setBody] = useState('')
@@ -91,7 +93,7 @@ export function PulseJournal() {
             </thead>
             <tbody>
               {rows.map((row) => {
-                const href = ownerHref(row.source, row.ownerId)
+                const href = ownerHref(row.source, row.ownerId, location.search)
                 return (
                   <tr key={`${row.source}-${row.id}`}>
                     <td>

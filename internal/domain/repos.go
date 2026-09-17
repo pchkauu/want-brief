@@ -14,6 +14,7 @@ type ItemFilter struct {
 	Status          *ItemStatus
 	OpenOnly        bool
 	IncludeArchived bool
+	ArchivedOnly    bool
 }
 
 type ItemRepository interface {
@@ -44,6 +45,14 @@ type ItemNoteRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (ItemNote, error)
 	ListByItem(ctx context.Context, itemID uuid.UUID) ([]ItemNote, error)
 	Create(ctx context.Context, note ItemNote) (ItemNote, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type ItemCheckRepository interface {
+	Get(ctx context.Context, id uuid.UUID) (ItemCheck, error)
+	ListByItem(ctx context.Context, itemID uuid.UUID) ([]ItemCheck, error)
+	Create(ctx context.Context, check ItemCheck) (ItemCheck, error)
+	Update(ctx context.Context, check ItemCheck) (ItemCheck, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -153,6 +162,7 @@ type SessionRepository interface {
 type Puller interface {
 	Probe(ctx context.Context, source Source, token string) error
 	Pull(ctx context.Context, source Source, token string) ([]RemoteItem, error)
+	Fetch(ctx context.Context, source Source, token, externalKey string) (RemoteItem, error)
 }
 
 type TokenBox interface {

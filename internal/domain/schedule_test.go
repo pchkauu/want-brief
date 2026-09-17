@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ func taskItem(title string, project *uuid.UUID, name, color string, due time.Tim
 		Title:          title,
 		Status:         status,
 		Kind:           KindTask,
+		Occupancy:      OccupancySolo,
 		ProjectID:      project,
 		ProjectName:    name,
 		ProjectColor:   color,
@@ -28,10 +30,10 @@ func taskItem(title string, project *uuid.UUID, name, color string, due time.Tim
 	return item.WithQuadrant()
 }
 
-func TestBuildScheduleSkipsClarification(t *testing.T) {
+func TestBuildScheduleSkipsReviewOnWork(t *testing.T) {
 	due := msk(2026, 9, 20, 18, 0)
 	pid := uuid.New()
-	item := taskItem("Clarify", &pid, "A", "#f00", due, 3600, 0, StatusClarification)
+	item := taskItem("Review", &pid, "A", "#f00", due, 3600, 0, StatusReview)
 	now := msk(2026, 9, 15, 8, 0)
 	got := BuildSchedule([]Item{item}, nil, now, now, now.Add(24*time.Hour))
 	if len(got.Lanes) != 0 || len(got.Unplanned) != 0 {
@@ -295,6 +297,119 @@ func TestBuildSchedulePinnedFirst(t *testing.T) {
 	}
 	if !alpha.Blocks[0].StartsAt.Equal(msk(2026, 9, 15, 11, 0).UTC()) {
 		t.Fatalf("plain start %s", alpha.Blocks[0].StartsAt)
+	}
+}
+
+func TestBuildSchedulePacksThreeParallel(t *testing.T) {
+	due := msk(2026, 9, 20, 18, 0)
+	pid := uuid.New()
+	now := msk(2026, 9, 15, 8, 0)
+	var items []Item
+	for i := 0; i < 3; i++ {
+		item := taskItem(fmt.Sprintf("P%d", i), &pid, "Alpha", "#111", due, 3600, 0, StatusToDo)
+		item.Occupancy = OccupancyParallel
+		item.CreatedAt = msk(2026, 1, 1, 12, i).UTC()
+		items = append(items, item)
+	}
+	got := BuildSchedule(items, nil, now, now, now.Add(24*time.Hour))
+	blocks := laneNamed(got, "Alpha").Blocks
+	if len(blocks) != 3 {
+		t.Fatalf("blocks %d", len(blocks))
+	}
+	start := msk(2026, 9, 15, 10, 0).UTC()
+	end := msk(2026, 9, 15, 11, 0).UTC()
+	lanes := map[int]bool{}
+	for _, block := range blocks {
+		if !block.StartsAt.Equal(start) || !block.EndsAt.Equal(end) {
+			t.Fatalf("block %s-%s lane %d", block.StartsAt, block.EndsAt, block.Lane)
+		}
+		if block.Occupancy != OccupancyParallel {
+			t.Fatalf("occupancy %s", block.Occupancy)
+		}
+		lanes[block.Lane] = true
+	}
+	if len(lanes) != 3 {
+		t.Fatalf("lanes %+v", lanes)
+	}
+}
+
+func TestBuildScheduleFourthParallelWaits(t *testing.T) {
+	due := msk(2026, 9, 20, 18, 0)
+	pid := uuid.New()
+	now := msk(2026, 9, 15, 8, 0)
+	var items []Item
+	for i := 0; i < 4; i++ {
+		item := taskItem(fmt.Sprintf("P%d", i), &pid, "Alpha", "#111", due, 3600, 0, StatusToDo)
+		item.Occupancy = OccupancyParallel
+		item.CreatedAt = msk(2026, 1, 1, 12, i).UTC()
+		items = append(items, item)
+	}
+	got := BuildSchedule(items, nil, now, now, now.Add(24*time.Hour))
+	blocks := laneNamed(got, "Alpha").Blocks
+	if len(blocks) != 4 {
+		t.Fatalf("blocks %d", len(blocks))
+	}
+	late := 0
+	for _, block := range blocks {
+		if block.StartsAt.Equal(msk(2026, 9, 15, 11, 0).UTC()) {
+			late++
+		}
+	}
+	if late != 1 {
+		t.Fatalf("waiting blocks %d", late)
+	}
+}
+
+func TestBuildScheduleSoloExcludesParallel(t *testing.T) {
+	due := msk(2026, 9, 20, 18, 0)
+	pid := uuid.New()
+	now := msk(2026, 9, 15, 8, 0)
+	solo := taskItem("Solo", &pid, "Alpha", "#111", due, 2*3600, 0, StatusToDo)
+	solo.Occupancy = OccupancySolo
+	solo.Pinned = true
+	par := taskItem("Par", &pid, "Alpha", "#111", due, 3600, 0, StatusToDo)
+	par.Occupancy = OccupancyParallel
+	got := BuildSchedule([]Item{solo, par}, nil, now, now, now.Add(24*time.Hour))
+	blocks := laneNamed(got, "Alpha").Blocks
+	if len(blocks) != 2 {
+		t.Fatalf("blocks %d", len(blocks))
+	}
+	var soloBlock, parBlock ScheduleBlock
+	for _, block := range blocks {
+		if block.Occupancy == OccupancySolo {
+			soloBlock = block
+		} else {
+			parBlock = block
+		}
+	}
+	if !soloBlock.StartsAt.Equal(msk(2026, 9, 15, 10, 0).UTC()) {
+		t.Fatalf("solo start %s", soloBlock.StartsAt)
+	}
+	if !parBlock.StartsAt.Equal(soloBlock.EndsAt) {
+		t.Fatalf("parallel %s overlaps solo %s-%s", parBlock.StartsAt, soloBlock.StartsAt, soloBlock.EndsAt)
+	}
+}
+
+func TestBuildFollowupScheduleUsesReviewDue(t *testing.T) {
+	reviewDue := msk(2026, 9, 16, 18, 0)
+	pid := uuid.New()
+	item := taskItem("Review me", &pid, "Alpha", "#111", msk(2026, 9, 30, 18, 0), 3600, 0, StatusReview)
+	item.ReviewDueAt = &reviewDue
+	now := msk(2026, 9, 15, 8, 0)
+	got := BuildKindSchedule(ScheduleFollowup, []Item{item}, nil, now, now, now.Add(24*time.Hour))
+	if len(got.Lanes) != 1 || len(got.Lanes[0].Blocks) != 1 {
+		t.Fatalf("lanes %+v unplanned %+v", got.Lanes, got.Unplanned)
+	}
+}
+
+func TestBuildFollowupScheduleMissingDueIsUnplanned(t *testing.T) {
+	pid := uuid.New()
+	item := taskItem("Wait", &pid, "Alpha", "#111", msk(2026, 9, 20, 18, 0), 3600, 0, StatusAwaitingDecision)
+	item.DueAt = nil
+	now := msk(2026, 9, 15, 8, 0)
+	got := BuildKindSchedule(ScheduleFollowup, []Item{item}, nil, now, now, now.Add(24*time.Hour))
+	if len(got.Unplanned) != 1 || !got.Unplanned[0].MissingDevDue {
+		t.Fatalf("%+v", got.Unplanned)
 	}
 }
 

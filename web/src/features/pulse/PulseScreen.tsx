@@ -5,6 +5,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
 import { hours } from '../../shared/format'
 import { moscowRange, type LoadPeriod } from '../../shared/moscow'
+import { taskHref } from '../../shared/taskOverlay'
 import { Window } from '../../shared/Window'
 import type { LoadReport } from '../../types'
 import { PulseChart } from './PulseChart'
@@ -164,7 +165,7 @@ export function PulseScreen() {
                     {items.map((row) => (
                       <tr key={row.itemId}>
                         <td>
-                          <Link to={`/tasks/${row.itemId}`}>{row.title}</Link>
+                          <Link to={taskHref(row.itemId)}>{row.title}</Link>
                         </td>
                         <td>{row.kind}</td>
                         <td>{row.projectName || 'unassigned'}</td>

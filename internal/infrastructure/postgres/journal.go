@@ -22,7 +22,7 @@ func (s *Store) ListJournal(ctx context.Context) ([]domain.JournalEntry, error) 
 			UNION ALL
 			SELECT n.id, 'item', n.item_id, i.title, n.body, n.created_at
 			FROM item_notes n
-			JOIN items i ON i.id = n.item_id
+			JOIN items i ON i.id = n.item_id AND i.deleted_at IS NULL
 			UNION ALL
 			SELECT n.id, 'person', n.person_id, pe.name, n.body, n.created_at
 			FROM person_notes n

@@ -13,8 +13,10 @@ import {
   type Icon,
 } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { TaskDossierSheet } from '../features/tasks/TaskPage'
+import { TaskLogProvider } from '../features/tasks/TaskLogPrompt'
 import { CheckinDialog } from '../features/today/CheckinDialog'
 
 const links: { to: string; label: string; Icon: Icon }[] = [
@@ -31,9 +33,18 @@ const links: { to: string; label: string; Icon: Icon }[] = [
 
 export function Shell() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [checkinOpen, setCheckinOpen] = useState(false)
+  const taskId = searchParams.get('task')
+
+  function closeTask() {
+    const next = new URLSearchParams(searchParams)
+    next.delete('task')
+    setSearchParams(next, { replace: true })
+  }
 
   return (
+    <TaskLogProvider>
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
@@ -79,6 +90,8 @@ export function Shell() {
         <Outlet />
       </main>
       <CheckinDialog open={checkinOpen} onClose={() => setCheckinOpen(false)} />
+      {taskId ? <TaskDossierSheet id={taskId} onClose={closeTask} /> : null}
     </div>
+    </TaskLogProvider>
   )
 }

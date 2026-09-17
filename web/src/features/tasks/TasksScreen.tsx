@@ -18,7 +18,7 @@ import {
 } from '../../types'
 import { DRAG_TYPE, TaskCard, decodeTaskDrag } from './TaskCard'
 import { TaskLogProvider, useTaskLogPrompt } from './TaskLogPrompt'
-import { TaskDossier } from './TaskPage'
+import { TaskDossierSheet } from './TaskPage'
 import { TaskSheet } from './TaskSheet'
 
 function columnsFor(showDone: boolean): ItemStatus[] {
@@ -67,7 +67,7 @@ function TasksWorkspace() {
   const [kind, setKind] = useState<ItemKind | ''>('')
   const [query, setQuery] = useState('')
   const [showDone, setShowDone] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
+  const [stall, setStall] = useState<'active' | 'stalled' | 'all'>('active')
   const [onlyU, setOnlyU] = useState(false)
   const [onlyI, setOnlyI] = useState(false)
   const [urgentOnly, setUrgentOnly] = useState(false)
@@ -87,14 +87,15 @@ function TasksWorkspace() {
     },
   })
   const items = useQuery({
-    queryKey: ['items', sourceId, projectId, kind, showDone, showArchived],
+    queryKey: ['items', sourceId, projectId, kind, showDone, stall],
     queryFn: () =>
       api.items({
         sourceId: sourceId || undefined,
         projectId: projectId || undefined,
         kind: kind || undefined,
         openOnly: !showDone,
-        includeArchived: showArchived,
+        includeArchived: stall === 'all',
+        archivedOnly: stall === 'stalled',
       }),
   })
   const intervals = useQuery({ queryKey: ['intervals'], queryFn: api.intervals, refetchInterval: 1000 })
@@ -180,7 +181,6 @@ function TasksWorkspace() {
   const grouped = useMemo(() => {
     const buckets: Record<ItemStatus, Item[]> = {
       backlog: [],
-      clarification: [],
       needs_grooming: [],
       to_do: [],
       in_progress: [],
@@ -222,8 +222,12 @@ function TasksWorkspace() {
           Show done
         </label>
         <label className="tasks-toggle">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Show archived
+          Stall
+          <select value={stall} onChange={(e) => setStall(e.target.value as 'active' | 'stalled' | 'all')} aria-label="Stall filter">
+            <option value="active">Active</option>
+            <option value="stalled">Stalled</option>
+            <option value="all">All</option>
+          </select>
         </label>
         <div className="tasks-chips">
           <button type="button" className={onlyU ? 'chip on' : 'chip'} onClick={() => setOnlyU((on) => !on)}>
@@ -334,9 +338,7 @@ function TasksWorkspace() {
           <button type="submit">Create</button>
         </form>
       </TaskSheet>
-      <TaskSheet open={Boolean(id)} kicker="Task" title="Dossier" onClose={closeDossier}>
-        {id ? <TaskDossier id={id} onGone={closeDossier} /> : null}
-      </TaskSheet>
+      {id ? <TaskDossierSheet id={id} onClose={closeDossier} /> : null}
     </div>
   )
 }

@@ -1,17 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
-import { createdLabel, dueHeat, liveTracked, span } from '../../shared/format'
+import { createdLabel, liveTracked, span } from '../../shared/format'
 import { kindLabel, type Item, type TimeInterval } from '../../types'
+import { TaskDueRail } from './TaskDueRail'
 import { TaskTimer } from './TaskTimer'
 
 const DRAG_TYPE = 'application/x-want-item'
-
-function dueLabel(iso: string | null): string {
-  if (!iso) return ''
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' }).format(new Date(iso))
-}
 
 export function encodeTaskDrag(item: Item): string {
   return JSON.stringify({ id: item.id, kind: item.kind })
@@ -42,14 +37,12 @@ export function TaskCard({ item, running, yieldUsd, yieldRub }: Props) {
     mutationFn: (body: Record<string, unknown>) => api.patchItem(item.id, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['items'] }),
   })
-  const due = dueLabel(item.dueAt)
-  const devDue = item.kind === 'task' ? dueLabel(item.devDueAt) : ''
-  const heat = dueHeat(item.dueAt, item.status)
   const tracked = liveTracked(item.trackedSeconds, running?.startedAt)
   const planned = item.plannedSeconds
   const overflow = planned > 0 && tracked > planned
   const ratio = planned > 0 ? Math.min(1, tracked / planned) : 0
   const showYield = Boolean(yieldUsd || yieldRub)
+  const checks = item.checkTotal > 0 ? `${item.checkDone}/${item.checkTotal}` : ''
 
   return (
     <article
@@ -73,22 +66,10 @@ export function TaskCard({ item, running, yieldUsd, yieldRub }: Props) {
             <i className="tasks-swatch" style={{ background: item.projectColor || 'var(--accent)' }} />
             {item.projectName || '—'}
           </span>
-          {devDue ? (
-            <span className="muted" title="Dev due">
-              {devDue}
-            </span>
-          ) : null}
-          {due ? (
-            <span
-              className={heat >= 1 ? 'tasks-due overdue' : 'tasks-due'}
-              style={{ '--due-heat': heat } as CSSProperties}
-              title={item.kind === 'task' ? 'Task due' : 'Due'}
-            >
-              {due}
-            </span>
-          ) : null}
+          {checks ? <span className="muted">{checks}</span> : null}
           {item.createdAt ? <span className="muted">{createdLabel(item.createdAt)}</span> : null}
         </p>
+        <TaskDueRail item={item} compact />
         {planned > 0 ? (
           <div className={overflow ? 'tasks-track overflow' : 'tasks-track'}>
             <span className="tasks-track-rail">

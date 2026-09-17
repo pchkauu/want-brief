@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
 import { moscowDayRange } from '../../shared/moscow'
+import { openTask } from '../../shared/taskOverlay'
 import { eventTypeLabel, type CalendarEvent, type ScheduleBlock } from '../../types'
 
 function formatTime(iso: string): string {
@@ -91,7 +92,7 @@ export function EventList() {
       ) : null}
       {events.isError ? <p className="error">{events.error.message}</p> : null}
       {empty ? <p className="muted">Nothing scheduled.</p> : null}
-      {nextWork ? <WorkRow row={nextWork} onOpen={(id) => navigate(`/tasks/${id}`)} /> : null}
+      {nextWork ? <WorkRow row={nextWork} onOpen={(id) => openTask(navigate, id)} /> : null}
       {next ? <AgendaRow row={next} featured={!nextWork} onOpen={(id) => navigate(`/events/${id}`)} /> : null}
       {rest.map((row) => (
         <AgendaRow key={`${row.seriesId}-${row.startsAt}`} row={row} onOpen={(id) => navigate(`/events/${id}`)} />

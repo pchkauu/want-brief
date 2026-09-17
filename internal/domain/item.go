@@ -23,7 +23,6 @@ type ItemStatus string
 
 const (
 	StatusBacklog          ItemStatus = "backlog"
-	StatusClarification    ItemStatus = "clarification"
 	StatusNeedsGrooming    ItemStatus = "needs_grooming"
 	StatusToDo             ItemStatus = "to_do"
 	StatusInProgress       ItemStatus = "in_progress"
@@ -34,6 +33,13 @@ const (
 	StatusReleaseCandidate ItemStatus = "release_candidate"
 	StatusDone             ItemStatus = "done"
 	StatusCancelled        ItemStatus = "cancelled"
+)
+
+type Occupancy string
+
+const (
+	OccupancySolo     Occupancy = "solo"
+	OccupancyParallel Occupancy = "parallel"
 )
 
 type Quadrant string
@@ -51,6 +57,8 @@ type Item struct {
 	ExternalKey    string        `json:"externalKey"`
 	Title          string        `json:"title"`
 	Status         ItemStatus    `json:"status"`
+	Occupancy      Occupancy     `json:"occupancy"`
+	ExternalStatus string        `json:"externalStatus"`
 	Kind           ItemKind      `json:"kind"`
 	ProjectID      *uuid.UUID    `json:"projectId"`
 	Urgent         bool          `json:"urgent"`
@@ -67,6 +75,7 @@ type Item struct {
 	PersonIDs      []uuid.UUID   `json:"personIds"`
 	TrackedSeconds int64         `json:"trackedSeconds"`
 	ArchivedAt     *time.Time    `json:"archivedAt"`
+	DeletedAt      *time.Time    `json:"deletedAt"`
 	CreatedAt      time.Time     `json:"createdAt"`
 	UpdatedAt      time.Time     `json:"updatedAt"`
 	SourceName     string        `json:"sourceName"`
@@ -74,6 +83,8 @@ type Item struct {
 	ProjectName    string        `json:"projectName"`
 	ProjectColor   string        `json:"projectColor"`
 	QuadrantName   Quadrant      `json:"quadrant"`
+	CheckTotal     int           `json:"checkTotal"`
+	CheckDone      int           `json:"checkDone"`
 }
 
 func ParseItemKind(raw string) (ItemKind, error) {
@@ -89,7 +100,7 @@ func ParseItemKind(raw string) (ItemKind, error) {
 func ParseItemStatus(raw string) (ItemStatus, error) {
 	status := ItemStatus(raw)
 	switch status {
-	case StatusBacklog, StatusClarification, StatusNeedsGrooming, StatusToDo, StatusInProgress, StatusBlocked, StatusReview, StatusQA, StatusAwaitingDecision, StatusReleaseCandidate, StatusDone, StatusCancelled:
+	case StatusBacklog, StatusNeedsGrooming, StatusToDo, StatusInProgress, StatusBlocked, StatusReview, StatusQA, StatusAwaitingDecision, StatusReleaseCandidate, StatusDone, StatusCancelled:
 		return status, nil
 	default:
 		return "", fmt.Errorf("%w: item status", ErrInvalid)
@@ -98,7 +109,7 @@ func ParseItemStatus(raw string) (ItemStatus, error) {
 
 func StatusAllowed(kind ItemKind, status ItemStatus) bool {
 	switch status {
-	case StatusBacklog, StatusClarification, StatusNeedsGrooming, StatusToDo, StatusInProgress, StatusBlocked, StatusDone, StatusCancelled:
+	case StatusBacklog, StatusNeedsGrooming, StatusToDo, StatusInProgress, StatusBlocked, StatusDone, StatusCancelled:
 		return true
 	case StatusReview, StatusQA, StatusAwaitingDecision, StatusReleaseCandidate:
 		return kind == KindTask
@@ -116,6 +127,35 @@ func ParseItemStatusForKind(raw string, kind ItemKind) (ItemStatus, error) {
 		return "", fmt.Errorf("%w: item status", ErrInvalid)
 	}
 	return status, nil
+}
+
+func ParseOccupancy(raw string) (Occupancy, error) {
+	occupancy := Occupancy(strings.TrimSpace(raw))
+	if occupancy == "" {
+		return OccupancySolo, nil
+	}
+	switch occupancy {
+	case OccupancySolo, OccupancyParallel:
+		return occupancy, nil
+	default:
+		return "", fmt.Errorf("%w: occupancy", ErrInvalid)
+	}
+}
+
+func (i Item) EffectiveOccupancy() Occupancy {
+	if i.Occupancy == OccupancyParallel {
+		return OccupancyParallel
+	}
+	return OccupancySolo
+}
+
+func (i *Item) SetOccupancy(raw string) error {
+	occupancy, err := ParseOccupancy(raw)
+	if err != nil {
+		return err
+	}
+	i.Occupancy = occupancy
+	return nil
 }
 
 func (i *Item) SetPlannedSeconds(seconds int) error {
@@ -140,6 +180,23 @@ func (i *Item) Restore(now time.Time) {
 		return
 	}
 	i.ArchivedAt = nil
+	i.UpdatedAt = now.UTC()
+}
+
+func (i *Item) Delete(now time.Time) {
+	if i.DeletedAt != nil {
+		return
+	}
+	at := now.UTC()
+	i.DeletedAt = &at
+	i.UpdatedAt = at
+}
+
+func (i *Item) Undelete(now time.Time) {
+	if i.DeletedAt == nil {
+		return
+	}
+	i.DeletedAt = nil
 	i.UpdatedAt = now.UTC()
 }
 
@@ -189,6 +246,7 @@ func NewLocalItem(sourceID uuid.UUID, title string, kind ItemKind) (Item, error)
 		SourceID:  sourceID,
 		Title:     title,
 		Status:    StatusBacklog,
+		Occupancy: OccupancySolo,
 		Kind:      kind,
 		Links:     []ProjectLink{},
 		CreatedAt: now,

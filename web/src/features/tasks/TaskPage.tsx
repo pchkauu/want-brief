@@ -1,28 +1,36 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { ArrowCounterClockwise, ArrowsClockwise, ChatTeardrop, Clock, Copy, Pause, Trash } from '@phosphor-icons/react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { DateField } from '../../shared/DateField'
-import { UrlField, OpenUrl } from '../../shared/UrlField'
-import { createdLabel, dueHeat, itemCost, liveTracked, span } from '../../shared/format'
+import { OpenUrl, UrlField } from '../../shared/UrlField'
+import { createdLabel, itemCost, liveTracked, span } from '../../shared/format'
 import { moscowRange } from '../../shared/moscow'
 import {
   KINDS,
   kindLabel,
+  occupancyLabel,
   statusesForKind,
   statusLabel,
   type ItemKind,
+  type Occupancy,
   type ItemStatus,
   type ProjectLink,
 } from '../../types'
 import { idsToRels, relIds } from '../people/RelationField'
 import { PeoplePicker } from '../people/PeoplePicker'
+import { TaskChecks } from './TaskChecks'
+import { TaskConfirm, TaskOverlay } from './TaskConfirm'
+import { TaskDueRail } from './TaskDueRail'
 import { useTaskLogPrompt } from './TaskLogPrompt'
 import { TaskSheet } from './TaskSheet'
 import { TaskTimer } from './TaskTimer'
+import { useTaskUndo } from './TaskUndo'
 
 const LINK_SLOTS = ['GitLab', 'Jira', 'Confluence'] as const
 
 type SlotLabel = (typeof LINK_SLOTS)[number]
+type FieldState = 'idle' | 'saving' | 'saved' | 'error'
 
 function isSlot(label: string): label is SlotLabel {
   return (LINK_SLOTS as readonly string[]).includes(label)
@@ -79,20 +87,48 @@ function isoFromInput(raw: string): string {
   return new Date(raw).toISOString()
 }
 
+function logRange(date: string, seconds: number): { startedAt: string; endedAt: string } {
+  if (date === todayDate()) {
+    const ended = new Date()
+    return { startedAt: new Date(ended.getTime() - seconds * 1000).toISOString(), endedAt: ended.toISOString() }
+  }
+  const noon = new Date(`${date}T12:00:00`)
+  return { startedAt: new Date(noon.getTime() - seconds * 1000).toISOString(), endedAt: noon.toISOString() }
+}
+
+function FieldHint({ state, error }: { state: FieldState; error?: string }) {
+  if (state === 'saving') return <span className="tasks-field-hint">Saving</span>
+  if (state === 'saved') return <span className="tasks-field-hint ok">Saved</span>
+  if (state === 'error') return <span className="error">{error || 'Could not save.'}</span>
+  return null
+}
+
 type Props = {
   id: string
   onGone: () => void
 }
 
+export function TaskDossierSheet({ id, onClose }: { id: string; onClose: () => void }) {
+  const item = useQuery({ queryKey: ['items', id], queryFn: () => api.item(id), enabled: Boolean(id) })
+  const title = item.isError ? 'Task not found' : item.data?.title || '…'
+  return (
+    <TaskSheet open title={title} kicker="Task" onClose={onClose}>
+      <TaskDossier id={id} onGone={onClose} />
+    </TaskSheet>
+  )
+}
+
 export function TaskDossier({ id, onGone }: Props) {
   const promptLog = useTaskLogPrompt()
+  const offerUndo = useTaskUndo()
   const queryClient = useQueryClient()
   const item = useQuery({ queryKey: ['items', id], queryFn: () => api.item(id), enabled: Boolean(id) })
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
+  const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
   const notes = useQuery({
     queryKey: ['item-notes', id],
     queryFn: () => api.itemNotes(id),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && !item.isError,
   })
   const monthLoad = useQuery({
     queryKey: ['load', 'month'],
@@ -112,20 +148,20 @@ export function TaskDossier({ id, onGone }: Props) {
   const [planMinutes, setPlanMinutes] = useState('0')
   const [externalKey, setExternalKey] = useState('')
   const [noteBody, setNoteBody] = useState('')
+  const [noteOpen, setNoteOpen] = useState(false)
   const [linkLabel, setLinkLabel] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
-  const [slots, setSlots] = useState<Record<SlotLabel, string>>({ GitLab: '', Jira: '', Confluence: '' })
   const [linkOpen, setLinkOpen] = useState(false)
-  const [noteOpen, setNoteOpen] = useState(false)
+  const [slots, setSlots] = useState<Record<SlotLabel, string>>({ GitLab: '', Jira: '', Confluence: '' })
   const [logDate, setLogDate] = useState(todayDate)
   const [logHours, setLogHours] = useState('0')
   const [logMinutes, setLogMinutes] = useState('0')
-  const [formError, setFormError] = useState('')
+  const [fields, setFields] = useState<Record<string, { state: FieldState; error?: string }>>({})
+  const [kindConfirm, setKindConfirm] = useState<ItemKind | null>(null)
+  const [modal, setModal] = useState<'stall' | 'delete' | 'time' | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const row = item.data
-  useEffect(() => {
-    if (item.isError) onGone()
-  }, [item.isError, onGone])
   useEffect(() => {
     if (!row) return
     setTitle(row.title)
@@ -156,25 +192,49 @@ export function TaskDossier({ id, onGone }: Props) {
     row?.links,
   ])
 
+  function mark(field: string, state: FieldState, error?: string) {
+    setFields((current) => ({ ...current, [field]: { state, error } }))
+  }
+
   const patch = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.patchItem(id, body),
-    onSuccess: () => {
+    mutationFn: ({ body }: { body: Record<string, unknown>; field?: string }) => api.patchItem(id, body),
+    onMutate: ({ field }) => {
+      if (field) mark(field, 'saving')
+    },
+    onSuccess: (_data, { field }) => {
+      if (field) {
+        mark(field, 'saved')
+        window.setTimeout(() => mark(field, 'idle'), 1200)
+      }
       void queryClient.invalidateQueries({ queryKey: ['items'] })
       void queryClient.invalidateQueries({ queryKey: ['load'] })
       void queryClient.invalidateQueries({ queryKey: ['people'] })
       void queryClient.invalidateQueries({ queryKey: ['person'] })
     },
-    onError: (err) => setFormError(err instanceof Error ? err.message : 'Could not save.'),
+    onError: (err, { field }) => {
+      const message = err instanceof Error ? err.message : 'Could not save.'
+      if (field) mark(field, 'error', message)
+    },
   })
   const addNote = useMutation({
     mutationFn: () => api.createItemNote(id, noteBody),
     onSuccess: () => {
       setNoteBody('')
-      setFormError('')
       setNoteOpen(false)
+      mark('note', 'idle')
       void queryClient.invalidateQueries({ queryKey: ['item-notes', id] })
     },
-    onError: (err) => setFormError(err instanceof Error ? err.message : 'Could not add note.'),
+    onError: (err) => mark('note', 'error', err instanceof Error ? err.message : 'Could not add note.'),
+  })
+  const syncRemote = useMutation({
+    mutationFn: () => api.syncItem(id),
+    onSuccess: () => {
+      mark('sync', 'saved')
+      void queryClient.invalidateQueries({ queryKey: ['items'] })
+      void queryClient.invalidateQueries({ queryKey: ['item-notes', id] })
+      void queryClient.invalidateQueries({ queryKey: ['sources'] })
+    },
+    onError: (err) => mark('sync', 'error', err instanceof Error ? err.message : 'Could not sync.'),
   })
   const addTime = useMutation({
     mutationFn: ({ startedAt, endedAt }: { startedAt: string; endedAt: string }) =>
@@ -182,33 +242,53 @@ export function TaskDossier({ id, onGone }: Props) {
     onSuccess: () => {
       setLogHours('0')
       setLogMinutes('0')
-      setFormError('')
+      setModal(null)
+      mark('time', 'saved')
       void queryClient.invalidateQueries({ queryKey: ['intervals'] })
       void queryClient.invalidateQueries({ queryKey: ['items'] })
       void queryClient.invalidateQueries({ queryKey: ['load'] })
     },
-    onError: (err) => setFormError(err instanceof Error ? err.message : 'Could not add time.'),
+    onError: (err) => mark('time', 'error', err instanceof Error ? err.message : 'Could not add time.'),
+  })
+  const remove = useMutation({
+    mutationFn: () => api.deleteItem(id),
+    onSuccess: () => {
+      setModal(null)
+      offerUndo('Task deleted.', async () => {
+        await api.undeleteItem(id)
+        void queryClient.invalidateQueries({ queryKey: ['items'] })
+        void queryClient.invalidateQueries({ queryKey: ['schedule'] })
+        void queryClient.invalidateQueries({ queryKey: ['load'] })
+        void queryClient.invalidateQueries({ queryKey: ['people'] })
+      })
+      void queryClient.invalidateQueries({ queryKey: ['items'] })
+      void queryClient.invalidateQueries({ queryKey: ['schedule'] })
+      void queryClient.invalidateQueries({ queryKey: ['load'] })
+      void queryClient.invalidateQueries({ queryKey: ['people'] })
+      onGone()
+    },
+    onError: (err) => mark('delete', 'error', err instanceof Error ? err.message : 'Could not delete.'),
   })
 
   function saveTitle(raw: string) {
     const next = raw.trim()
     if (!next || next === row?.title) return
-    patch.mutate({ title: next })
+    patch.mutate({ body: { title: next }, field: 'title' })
   }
 
   function saveDescription(raw: string) {
     if (raw.trim() === (row?.description ?? '')) return
-    patch.mutate({ description: raw })
+    patch.mutate({ body: { description: raw }, field: 'description' })
   }
 
   function saveDueField(raw: string, current: string | null | undefined, key: string) {
     if (!raw) {
-      if (current) patch.mutate({ [key]: '' })
+      if (current) patch.mutate({ body: { [key]: '' }, field: key })
       return
     }
     const iso = isoFromInput(raw)
     if (iso === current) return
-    patch.mutate({ [key]: iso })
+    patch.mutate({ body: { [key]: iso }, field: key })
   }
 
   function savePlan(hoursRaw: string, minutesRaw: string) {
@@ -217,33 +297,42 @@ export function TaskDossier({ id, onGone }: Props) {
     if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0 || m > 59 || !row) return
     const seconds = Math.round(h) * 3600 + Math.round(m) * 60
     if (seconds === row.plannedSeconds) return
-    patch.mutate({ plannedSeconds: seconds })
+    patch.mutate({ body: { plannedSeconds: seconds }, field: 'estimate' })
   }
 
   function saveKey(raw: string) {
     if (!row || row.sourceKind !== 'manual') return
     const next = raw.trim()
     if (next === row.externalKey) return
-    patch.mutate({ externalKey: next })
+    patch.mutate({ body: { externalKey: next }, field: 'key' })
+  }
+
+  function applyKind(next: ItemKind) {
+    if (!row || next === row.kind) return
+    const body: Record<string, unknown> = { kind: next }
+    if (!statusesForKind(next).includes(row.status)) body.status = 'backlog'
+    patch.mutate({ body, field: 'kind' })
   }
 
   function saveKind(next: ItemKind) {
     if (!row || next === row.kind) return
-    const body: Record<string, unknown> = { kind: next }
-    if (!statusesForKind(next).includes(row.status)) body.status = 'backlog'
-    patch.mutate(body)
+    if (!statusesForKind(next).includes(row.status)) {
+      setKindConfirm(next)
+      return
+    }
+    applyKind(next)
   }
 
   function saveSlot(label: SlotLabel, url: string) {
     if (!row) return
     if (slotUrl(row.links ?? [], label) === url.trim()) return
-    patch.mutate({ links: withSlot(row.links ?? [], label, url) })
+    patch.mutate({ body: { links: withSlot(row.links ?? [], label, url) }, field: `slot-${label}` })
   }
 
   function onAddNote(event: FormEvent) {
     event.preventDefault()
     if (!noteBody.trim()) {
-      setFormError('Note is required.')
+      mark('note', 'error', 'Note is required.')
       return
     }
     addNote.mutate()
@@ -253,12 +342,11 @@ export function TaskDossier({ id, onGone }: Props) {
     event.preventDefault()
     const url = linkUrl.trim()
     if (!url) {
-      setFormError('URL is required.')
+      mark('link', 'error', 'URL is required.')
       return
     }
-    setFormError('')
     patch.mutate(
-      { links: [...(row?.links ?? []), { label: linkLabel.trim(), url }] },
+      { body: { links: [...(row?.links ?? []), { label: linkLabel.trim(), url }] }, field: 'link' },
       {
         onSuccess: () => {
           setLinkLabel('')
@@ -274,21 +362,44 @@ export function TaskDossier({ id, onGone }: Props) {
     const h = Number(logHours)
     const m = Number(logMinutes)
     if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0 || m > 59) {
-      setFormError('Time is invalid.')
+      mark('time', 'error', 'Time is invalid.')
       return
     }
     const seconds = Math.round(h) * 3600 + Math.round(m) * 60
     if (seconds <= 0) {
-      setFormError('Time is required.')
+      mark('time', 'error', 'Time is required.')
       return
     }
-    const started = new Date(`${logDate}T00:00:00`)
-    if (Number.isNaN(started.getTime())) {
-      setFormError('Date is invalid.')
-      return
-    }
-    const ended = new Date(started.getTime() + seconds * 1000)
-    addTime.mutate({ startedAt: started.toISOString(), endedAt: ended.toISOString() })
+    addTime.mutate(logRange(logDate, seconds))
+  }
+
+  function applyStall() {
+    if (!row) return
+    const next = !row.archivedAt
+    const previous = Boolean(row.archivedAt)
+    patch.mutate(
+      { body: { archived: next }, field: 'stall' },
+      {
+        onSuccess: () => {
+          setModal(null)
+          offerUndo(next ? 'Task stalled.' : 'Task restored.', async () => {
+            await api.patchItem(id, { archived: previous })
+            void queryClient.invalidateQueries({ queryKey: ['items'] })
+          })
+        },
+      },
+    )
+  }
+
+  if (item.isError) {
+    return (
+      <div className="tasks-missing">
+        <p>Task not found</p>
+        <button type="button" onClick={onGone}>
+          Close
+        </button>
+      </div>
+    )
   }
 
   if (!row) {
@@ -296,10 +407,11 @@ export function TaskDossier({ id, onGone }: Props) {
   }
 
   const manual = row.sourceKind === 'manual'
-  const heat = dueHeat(row.dueAt, row.status)
+  const remote = row.sourceKind === 'jira' || row.sourceKind === 'todoist'
   const running = (intervals.data ?? []).find((entry) => entry.itemId === row.id)
   const trackedLive = liveTracked(row.trackedSeconds, running?.startedAt)
   const project = (projects.data ?? []).find((entry) => entry.id === row.projectId)
+  const source = (sources.data ?? []).find((entry) => entry.id === row.sourceId)
   const monthItem = secondsFor(monthLoad.data?.byItem, row.id)
   const monthProject = projectSeconds(monthLoad.data?.byProject, row.projectId)
   const links = row.links ?? []
@@ -307,75 +419,247 @@ export function TaskDossier({ id, onGone }: Props) {
   const statuses = statusesForKind(row.kind)
   const usd = project?.monthlyIncomeUsd ?? 0
   const rub = project?.monthlyIncomeRub ?? 0
-  const ticket = row.kind === 'task'
+  const filledSlots = LINK_SLOTS.filter((label) => slots[label])
+  const extraLinks = links.filter((link) => !isSlot(link.label))
+  const remoteHref = slotUrl(links, 'Jira') || links.find((link) => /^https?:/.test(link.url))?.url || ''
+  const meta = [row.sourceName, row.externalKey, row.externalStatus].filter(Boolean).join(' · ')
+
+  function hint(field: string): ReactNode {
+    const entry = fields[field]
+    if (!entry) return null
+    return <FieldHint state={entry.state} error={entry.error} />
+  }
 
   return (
     <div className="tasks-dossier">
-      {formError && !linkOpen && !noteOpen ? <p className="error">{formError}</p> : null}
-      {manual ? (
-        <label className="tasks-title">
-          Title
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={(e) => saveTitle(e.currentTarget.value)}
-          />
-        </label>
-      ) : (
-        <h3>
-          {row.externalKey ? `[${row.externalKey}] ` : ''}
-          {row.title}
-        </h3>
-      )}
-      <p className="muted">{row.sourceName}</p>
-      <label>
-        Status
-        <select
-          value={row.status}
-          onChange={(e) => {
-            const status = e.target.value as ItemStatus
-            if (status === row.status) return
-            patch.mutate({ status }, { onSuccess: () => promptLog(id) })
-          }}
-        >
-          {statuses.map((value) => (
-            <option key={value} value={value}>
-              {statusLabel(value)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <section>
+      <section className="tasks-work">
+        {manual ? (
+          <label className="tasks-title">
+            Title
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={(e) => saveTitle(e.currentTarget.value)}
+            />
+            {hint('title')}
+          </label>
+        ) : (
+          <h3 className="tasks-title-display">{row.title}</h3>
+        )}
+        <div className="tasks-meta">
+          <p className="muted">{meta || row.sourceName}</p>
+          {row.externalKey ? (
+            <button
+              type="button"
+              className="ghost tasks-icon-btn"
+              aria-label="Copy key"
+              onClick={() => {
+                void navigator.clipboard.writeText(row.externalKey)
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1200)
+              }}
+            >
+              <Copy size={16} weight="light" />
+              {copied ? 'Copied' : row.externalKey}
+            </button>
+          ) : null}
+          <OpenUrl href={remoteHref} label="Open source" />
+        </div>
         <div className="tasks-head">
-          <h3>Links</h3>
-          <button type="button" className="tasks-plus" aria-label="Add link" onClick={() => setLinkOpen(true)}>
-            +
+          <label>
+            Status
+            <select
+              value={row.status}
+              onChange={(e) => {
+                const status = e.target.value as ItemStatus
+                if (status === row.status) return
+                const previous = row.status
+                patch.mutate(
+                  { body: { status }, field: 'status' },
+                  {
+                    onSuccess: () => {
+                      offerUndo(
+                        'Status updated. Log what changed?',
+                        async () => {
+                          await api.patchItem(id, { status: previous })
+                          void queryClient.invalidateQueries({ queryKey: ['items'] })
+                        },
+                        { label: 'Log', run: () => promptLog(id) },
+                      )
+                    },
+                  },
+                )
+              }}
+            >
+              {statuses.map((value) => (
+                <option key={value} value={value}>
+                  {statusLabel(value)}
+                </option>
+              ))}
+            </select>
+            {hint('status')}
+          </label>
+          <div className="tasks-actions">
+            {remote ? (
+              <button
+                type="button"
+                className="ghost"
+                disabled={syncRemote.isPending}
+                title={
+                  row.sourceKind === 'todoist'
+                    ? `Pull Todoist · ${source?.lastSyncAt ? createdLabel(source.lastSyncAt) : 'never'}`
+                    : `Pull Jira · ${source?.lastSyncAt ? createdLabel(source.lastSyncAt) : 'never'}`
+                }
+                aria-label={row.sourceKind === 'todoist' ? 'Pull Todoist' : 'Pull Jira'}
+                onClick={() => syncRemote.mutate()}
+              >
+                <ArrowsClockwise size={18} weight="light" />
+              </button>
+            ) : null}
+            <button type="button" className="ghost" title="Log" aria-label="Log" onClick={() => promptLog(id)}>
+              <ChatTeardrop size={18} weight="light" />
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              title="Log time"
+              aria-label="Log time"
+              onClick={() => setModal('time')}
+            >
+              <Clock size={18} weight="light" />
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              title={row.archivedAt ? 'Restore' : 'Stall'}
+              aria-label={row.archivedAt ? 'Restore' : 'Stall'}
+              onClick={() => setModal('stall')}
+            >
+              {row.archivedAt ? <ArrowCounterClockwise size={18} weight="light" /> : <Pause size={18} weight="light" />}
+            </button>
+            <button
+              type="button"
+              className="ghost danger"
+              title="Delete"
+              aria-label="Delete"
+              disabled={remove.isPending}
+              onClick={() => setModal('delete')}
+            >
+              <Trash size={18} weight="light" />
+            </button>
+            {hint('sync')}
+            {hint('delete')}
+          </div>
+        </div>
+        <label>
+          Occupancy
+          <select
+            value={row.occupancy || 'solo'}
+            onChange={(e) => patch.mutate({ body: { occupancy: e.target.value as Occupancy }, field: 'occupancy' })}
+          >
+            <option value="solo">{occupancyLabel('solo')}</option>
+            <option value="parallel">{occupancyLabel('parallel')}</option>
+          </select>
+          <p className="muted">Solo never overlaps. Parallel stacks up to 3.</p>
+        </label>
+        <label>
+          Description
+          <textarea
+            rows={4}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={(e) => saveDescription(e.currentTarget.value)}
+          />
+          {hint('description')}
+        </label>
+        <p className="muted">Created · {createdLabel(row.createdAt)}</p>
+        <TaskDueRail
+          item={row}
+          values={{ dueAt, devDueAt, reviewDueAt, testDueAt }}
+          onChange={(key, next) => {
+            if (key === 'dueAt') setDueAt(next)
+            if (key === 'devDueAt') setDevDueAt(next)
+            if (key === 'reviewDueAt') setReviewDueAt(next)
+            if (key === 'testDueAt') setTestDueAt(next)
+          }}
+          onCommit={(key, raw) => saveDueField(raw, row[key], key)}
+        />
+        <div className="tasks-chips">
+          <button
+            type="button"
+            className={row.urgent ? 'chip on' : 'chip'}
+            onClick={() => patch.mutate({ body: { urgent: !row.urgent }, field: 'urgent' })}
+          >
+            Urgent
+          </button>
+          <button
+            type="button"
+            className={row.important ? 'chip on' : 'chip'}
+            onClick={() => patch.mutate({ body: { important: !row.important }, field: 'important' })}
+          >
+            Important
+          </button>
+          <button
+            type="button"
+            className={row.pinned ? 'chip on' : 'chip'}
+            onClick={() => patch.mutate({ body: { pinned: !row.pinned }, field: 'pinned' })}
+          >
+            Pin
           </button>
         </div>
-        <div className="tasks-form tasks-slots">
-          {LINK_SLOTS.map((label) => (
-            <UrlField
-              key={label}
-              label={label}
-              value={slots[label]}
-              onChange={(next) => setSlots((current) => ({ ...current, [label]: next }))}
-              onBlur={(next) => saveSlot(label, next)}
-            />
-          ))}
-        </div>
-        {links.filter((link) => !isSlot(link.label)).length > 0 ? (
-          <table className="tasks-table">
-            <thead>
-              <tr>
-                <th>Label</th>
-                <th>URL</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {links.map((link, index) =>
-                isSlot(link.label) ? null : (
-                  <tr key={`${link.url}-${index}`}>
+        <TaskTimer itemId={row.id} running={running} prominent />
+        <TaskChecks itemId={row.id} />
+      </section>
+
+      <details className="tasks-setup">
+        <summary>Setup</summary>
+        <section>
+          <div className="tasks-head">
+            <h3>Links</h3>
+            <button type="button" className="tasks-plus" aria-label="Add link" onClick={() => setLinkOpen((on) => !on)}>
+              +
+            </button>
+          </div>
+          <div className="tasks-form tasks-slots">
+            {filledSlots.map((label) => (
+              <UrlField
+                key={label}
+                label={label}
+                value={slots[label]}
+                onChange={(next) => setSlots((current) => ({ ...current, [label]: next }))}
+                onBlur={(next) => saveSlot(label, next)}
+              />
+            ))}
+          </div>
+          {hint('slot-GitLab')}
+          {hint('slot-Jira')}
+          {hint('slot-Confluence')}
+          {linkOpen ? (
+            <form className="tasks-form" onSubmit={onAddLink}>
+              <label>
+                Label
+                <input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="GitLab, Jira…" />
+              </label>
+              <label>
+                URL
+                <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://" />
+              </label>
+              {hint('link')}
+              <button type="submit">Add</button>
+            </form>
+          ) : null}
+          {extraLinks.length > 0 ? (
+            <table className="tasks-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>URL</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {extraLinks.map((link) => (
+                  <tr key={`${link.label}-${link.url}`}>
                     <td>{linkCaption(link)}</td>
                     <td>
                       <span className="url-field-row">
@@ -389,116 +673,55 @@ export function TaskDossier({ id, onGone }: Props) {
                       <button
                         type="button"
                         className="ghost"
-                        onClick={() => patch.mutate({ links: links.filter((_, i) => i !== index) })}
+                        onClick={() =>
+                          patch.mutate({
+                            body: { links: links.filter((entry) => entry !== link) },
+                            field: 'link',
+                          })
+                        }
                       >
                         Remove
                       </button>
                     </td>
                   </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        ) : null}
-      </section>
-      <section>
-        <div className="tasks-head">
-          <h3>Log</h3>
-          <button type="button" className="tasks-plus" aria-label="Add note" onClick={() => setNoteOpen(true)}>
-            +
-          </button>
-        </div>
-        {log.length === 0 ? <p className="muted">No notes yet.</p> : null}
-        {log.map((note) => (
-          <article key={note.id} className="tasks-note">
-            <p className="tasks-kicker">{noteStamp(note.createdAt)}</p>
-            <p>{note.body}</p>
-          </article>
-        ))}
-      </section>
-      <TaskTimer itemId={row.id} running={running} />
-      <div className="tasks-form">
-        <label>
-          Description
-          <textarea
-            rows={4}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onBlur={(e) => saveDescription(e.currentTarget.value)}
-          />
-        </label>
-        <p className="muted">Created · {createdLabel(row.createdAt)}</p>
-        {ticket ? (
-          <label>
-            Dev due
-            <DateField
-              mode="datetime"
-              value={devDueAt}
-              onChange={setDevDueAt}
-              onCommit={(raw) => saveDueField(raw, row.devDueAt, 'devDueAt')}
-            />
-          </label>
-        ) : null}
-        <label
-          className={heat >= 1 ? 'tasks-due overdue' : 'tasks-due'}
-          style={{ '--due-heat': heat } as CSSProperties}
-        >
-          {ticket ? 'Task due' : 'Due'}
-          <DateField
-            mode="datetime"
-            value={dueAt}
-            onChange={setDueAt}
-            onCommit={(raw) => saveDueField(raw, row.dueAt, 'dueAt')}
-          />
-        </label>
-        {ticket ? (
-          <>
-            <label>
-              Review due
-              <DateField
-                mode="datetime"
-                value={reviewDueAt}
-                onChange={setReviewDueAt}
-                onCommit={(raw) => saveDueField(raw, row.reviewDueAt, 'reviewDueAt')}
-              />
-            </label>
-            <label>
-              Tests due
-              <DateField
-                mode="datetime"
-                value={testDueAt}
-                onChange={setTestDueAt}
-                onCommit={(raw) => saveDueField(raw, row.testDueAt, 'testDueAt')}
-              />
-            </label>
-          </>
-        ) : null}
-        <div className="tasks-chips">
-          <button
-            type="button"
-            className={row.urgent ? 'chip on' : 'chip'}
-            onClick={() => patch.mutate({ urgent: !row.urgent })}
-          >
-            U
-          </button>
-          <button
-            type="button"
-            className={row.important ? 'chip on' : 'chip'}
-            onClick={() => patch.mutate({ important: !row.important })}
-          >
-            I
-          </button>
-          <button
-            type="button"
-            className={row.pinned ? 'chip on' : 'chip'}
-            onClick={() => patch.mutate({ pinned: !row.pinned })}
-          >
-            Pin
-          </button>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </section>
+
+        <section>
+          <div className="tasks-head">
+            <h3>Log</h3>
+            <button type="button" className="tasks-plus" aria-label="Add note" onClick={() => setNoteOpen((on) => !on)}>
+              +
+            </button>
+          </div>
+          {noteOpen ? (
+            <form className="tasks-form" onSubmit={onAddNote}>
+              <label>
+                Note
+                <textarea rows={4} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
+              </label>
+              {hint('note')}
+              <button type="submit">Add</button>
+            </form>
+          ) : null}
+          {log.length === 0 && !noteOpen ? <p className="muted">No notes yet.</p> : null}
+          {log.map((note) => (
+            <article key={note.id} className="tasks-note">
+              <p className="tasks-kicker">{noteStamp(note.createdAt)}</p>
+              <p>{note.body}</p>
+            </article>
+          ))}
+        </section>
+
         <label>
           Project
-          <select value={row.projectId ?? ''} onChange={(e) => patch.mutate({ projectId: e.target.value })}>
+          <select
+            value={row.projectId ?? ''}
+            onChange={(e) => patch.mutate({ body: { projectId: e.target.value }, field: 'project' })}
+          >
             <option value="">No project</option>
             {(projects.data ?? [])
               .filter((entry) => !entry.archivedAt || entry.id === row.projectId)
@@ -511,7 +734,7 @@ export function TaskDossier({ id, onGone }: Props) {
         </label>
         <PeoplePicker
           value={idsToRels(row.personIds ?? [])}
-          onChange={(people) => patch.mutate({ personIds: relIds(people) })}
+          onChange={(people) => patch.mutate({ body: { personIds: relIds(people) }, field: 'people' })}
         />
         <label>
           Type
@@ -522,8 +745,8 @@ export function TaskDossier({ id, onGone }: Props) {
               </option>
             ))}
           </select>
+          {hint('kind')}
         </label>
-        <p className="muted">Source · {row.sourceName}</p>
         {manual ? (
           <label>
             External ID
@@ -533,9 +756,11 @@ export function TaskDossier({ id, onGone }: Props) {
               onBlur={(e) => saveKey(e.currentTarget.value)}
               autoComplete="off"
             />
+            {hint('key')}
           </label>
         ) : null}
         <div className="tasks-plan">
+          <p className="tasks-kicker">Estimate</p>
           <label>
             Hours
             <input
@@ -559,36 +784,76 @@ export function TaskDossier({ id, onGone }: Props) {
               onBlur={(e) => savePlan(planHours, e.currentTarget.value)}
             />
           </label>
+          {hint('estimate')}
         </div>
-      </div>
-      <section>
-        <p className="tasks-kicker">Load</p>
-        <p className="tasks-stat">
-          <strong className="mono">{span(trackedLive)}</strong>
-          <span>tracked lifetime</span>
-        </p>
-        <p className="tasks-stat">
-          <strong className="mono">{span(monthItem)}</strong>
-          <span>this month</span>
-        </p>
-        <p className="tasks-stat">
-          <strong className="mono">{itemCost(usd, monthItem, monthProject, 'en-US')}</strong>
-          <span>USD fact</span>
-        </p>
-        <p className="tasks-stat">
-          <strong className="mono">{itemCost(rub, monthItem, monthProject, 'ru-RU')}</strong>
-          <span>RUB fact</span>
-        </p>
-        <p className="tasks-stat">
-          <strong className="mono">{itemCost(usd, row.plannedSeconds, monthProject, 'en-US')}</strong>
-          <span>USD plan</span>
-        </p>
-        <p className="tasks-stat">
-          <strong className="mono">{itemCost(rub, row.plannedSeconds, monthProject, 'ru-RU')}</strong>
-          <span>RUB plan</span>
-        </p>
-        <form className="tasks-form" onSubmit={onAddTime}>
-          <p className="tasks-kicker">Add time</p>
+
+        <section>
+          <p className="tasks-kicker">Load</p>
+          <p className="tasks-stat">
+            <strong className="mono">{span(trackedLive)}</strong>
+            <span>Tracked lifetime</span>
+          </p>
+          <p className="tasks-stat">
+            <strong className="mono">{span(monthItem)}</strong>
+            <span>This month</span>
+          </p>
+          {project ? (
+            <>
+              <p className="tasks-stat">
+                <strong className="mono">{itemCost(usd, monthItem, monthProject, 'en-US')}</strong>
+                <span>This month · $</span>
+              </p>
+              <p className="tasks-stat">
+                <strong className="mono">{itemCost(rub, monthItem, monthProject, 'ru-RU')}</strong>
+                <span>This month · ₽</span>
+              </p>
+              <p className="tasks-stat">
+                <strong className="mono">{itemCost(usd, row.plannedSeconds, monthProject, 'en-US')}</strong>
+                <span>If estimate · $</span>
+              </p>
+              <p className="tasks-stat">
+                <strong className="mono">{itemCost(rub, row.plannedSeconds, monthProject, 'ru-RU')}</strong>
+                <span>If estimate · ₽</span>
+              </p>
+            </>
+          ) : null}
+        </section>
+      </details>
+
+      <TaskConfirm
+        open={kindConfirm != null}
+        title="Type change resets status to Backlog"
+        body="This type cannot keep the current status."
+        confirmLabel="Change type"
+        onCancel={() => setKindConfirm(null)}
+        onConfirm={() => {
+          if (kindConfirm) applyKind(kindConfirm)
+          setKindConfirm(null)
+        }}
+      />
+      <TaskConfirm
+        open={modal === 'stall'}
+        title={row.archivedAt ? 'Return this task to the board?' : 'Stall this task?'}
+        body={row.archivedAt ? 'It will show in Active again.' : 'Hidden from schedule, priorities, and default lists.'}
+        confirmLabel={row.archivedAt ? 'Restore' : 'Stall'}
+        busy={patch.isPending}
+        onCancel={() => setModal(null)}
+        onConfirm={applyStall}
+      />
+      <TaskConfirm
+        open={modal === 'delete'}
+        title={`Delete “${row.externalKey || row.title}”?`}
+        body="This hides it from sync."
+        confirmLabel="Delete"
+        danger
+        busy={remove.isPending}
+        onCancel={() => setModal(null)}
+        onConfirm={() => remove.mutate()}
+      />
+      <TaskOverlay open={modal === 'time'} onCancel={() => setModal(null)}>
+        <form className="tasks-confirm" onSubmit={onAddTime}>
+          <p className="tasks-kicker">Log time</p>
+          <h3>How long?</h3>
           <label>
             Date
             <DateField mode="date" value={logDate} onChange={setLogDate} />
@@ -596,13 +861,7 @@ export function TaskDossier({ id, onGone }: Props) {
           <div className="tasks-plan">
             <label>
               Hours
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={logHours}
-                onChange={(e) => setLogHours(e.target.value)}
-              />
+              <input type="number" min={0} step={1} value={logHours} onChange={(e) => setLogHours(e.target.value)} />
             </label>
             <label>
               Minutes
@@ -616,58 +875,17 @@ export function TaskDossier({ id, onGone }: Props) {
               />
             </label>
           </div>
-          <button type="submit" disabled={addTime.isPending}>
-            Add time
-          </button>
+          {hint('time')}
+          <div className="tasks-confirm-actions">
+            <button type="button" className="ghost" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={addTime.isPending}>
+              Log time
+            </button>
+          </div>
         </form>
-      </section>
-      <button
-        type="button"
-        className="ghost"
-        onClick={() => patch.mutate({ archived: !row.archivedAt })}
-      >
-        {row.archivedAt ? 'Restore' : 'Archive'}
-      </button>
-      <TaskSheet
-        open={linkOpen}
-        kicker="Link"
-        title="Add link"
-        onClose={() => {
-          setLinkOpen(false)
-          setFormError('')
-        }}
-      >
-        <form className="tasks-form" onSubmit={onAddLink}>
-          <label>
-            Label
-            <input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} />
-          </label>
-          <label>
-            URL
-            <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://" />
-          </label>
-          {formError && linkOpen ? <p className="error">{formError}</p> : null}
-          <button type="submit">Add</button>
-        </form>
-      </TaskSheet>
-      <TaskSheet
-        open={noteOpen}
-        kicker="Log"
-        title="Add note"
-        onClose={() => {
-          setNoteOpen(false)
-          setFormError('')
-        }}
-      >
-        <form className="tasks-form" onSubmit={onAddNote}>
-          <label>
-            Note
-            <textarea rows={6} value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
-          </label>
-          {formError && noteOpen ? <p className="error">{formError}</p> : null}
-          <button type="submit">Add</button>
-        </form>
-      </TaskSheet>
+      </TaskOverlay>
     </div>
   )
 }

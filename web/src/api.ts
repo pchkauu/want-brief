@@ -9,6 +9,7 @@ import type {
   PersonBond,
   PersonProfession,
   Item,
+  ItemCheck,
   ItemKind,
   ItemNote,
   ItemStatus,
@@ -84,6 +85,7 @@ export const api = {
     status?: ItemStatus
     openOnly?: boolean
     includeArchived?: boolean
+    archivedOnly?: boolean
   }) => {
     const params = new URLSearchParams()
     if (query?.sourceId) params.set('sourceId', query.sourceId)
@@ -92,6 +94,7 @@ export const api = {
     if (query?.status) params.set('status', query.status)
     if (query?.openOnly) params.set('openOnly', 'true')
     if (query?.includeArchived) params.set('includeArchived', 'true')
+    if (query?.archivedOnly) params.set('archivedOnly', 'true')
     const suffix = params.toString() ? `?${params}` : ''
     return request<Item[]>(`/api/items${suffix}`)
   },
@@ -106,11 +109,20 @@ export const api = {
   patchItem: (id: string, body: Record<string, unknown>) =>
     request<Item>(`/api/items/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteItem: (id: string) => request(`/api/items/${id}`, { method: 'DELETE' }),
+  undeleteItem: (id: string) => request<Item>(`/api/items/${id}/undelete`, { method: 'POST' }),
   itemNotes: (id: string) => request<ItemNote[]>(`/api/items/${id}/notes`),
   createItemNote: (id: string, body: string) =>
     request<ItemNote>(`/api/items/${id}/notes`, { method: 'POST', body: JSON.stringify({ body }) }),
   deleteItemNote: (id: string, noteId: string) =>
     request(`/api/items/${id}/notes/${noteId}`, { method: 'DELETE' }),
+  itemChecks: (id: string) => request<ItemCheck[]>(`/api/items/${id}/checks`),
+  createItemCheck: (id: string, body: string) =>
+    request<ItemCheck>(`/api/items/${id}/checks`, { method: 'POST', body: JSON.stringify({ body }) }),
+  patchItemCheck: (id: string, checkId: string, body: Record<string, unknown>) =>
+    request<ItemCheck>(`/api/items/${id}/checks/${checkId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteItemCheck: (id: string, checkId: string) =>
+    request(`/api/items/${id}/checks/${checkId}`, { method: 'DELETE' }),
+  syncItem: (id: string) => request<Item>(`/api/items/${id}/sync`, { method: 'POST' }),
   notes: (itemId?: string) => {
     const suffix = itemId ? `?itemId=${itemId}` : ''
     return request<Note[]>(`/api/notes${suffix}`)
@@ -197,8 +209,9 @@ export const api = {
     const suffix = params.toString() ? `?${params}` : ''
     return request<LoadReport>(`/api/load${suffix}`)
   },
-  schedule: (from: string, to: string) => {
+  schedule: (from: string, to: string, kind?: 'work' | 'followup') => {
     const params = new URLSearchParams({ from, to })
+    if (kind) params.set('kind', kind)
     return request<Schedule>(`/api/schedule?${params}`)
   },
   journal: () => request<JournalEntry[]>('/api/journal'),

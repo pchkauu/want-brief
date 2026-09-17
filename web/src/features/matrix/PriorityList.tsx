@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import type { Item, Quadrant } from '../../types'
+import { taskHref } from '../../shared/taskOverlay'
 import { rankItems } from './rank'
 
 const labels: Record<Quadrant, string> = {
@@ -46,7 +47,7 @@ export function PriorityList({ items }: { items: Item[] }) {
                       <span className={`prio-badge ${item.quadrant}`}>{labels[item.quadrant]}</span>
                     </td>
                     <td>
-                      <Link to={`/tasks/${item.id}`}>{item.title}</Link>
+                      <Link to={taskHref(item.id)}>{item.title}</Link>
                     </td>
                     <td>
                       <span className="prio-project">
