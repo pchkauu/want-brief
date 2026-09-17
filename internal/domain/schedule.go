@@ -43,16 +43,21 @@ const (
 )
 
 type ScheduleBlock struct {
-	ItemID      uuid.UUID `json:"itemId"`
-	Title       string    `json:"title"`
-	ExternalKey string    `json:"externalKey"`
-	StartsAt    time.Time `json:"startsAt"`
-	EndsAt      time.Time `json:"endsAt"`
-	Late        bool      `json:"late"`
-	Continued   bool      `json:"continued"`
-	Continues   bool      `json:"continues"`
-	Lane        int       `json:"lane"`
-	Occupancy   Occupancy `json:"occupancy"`
+	ItemID           uuid.UUID `json:"itemId"`
+	Title            string    `json:"title"`
+	ExternalKey      string    `json:"externalKey"`
+	StartsAt         time.Time `json:"startsAt"`
+	EndsAt           time.Time `json:"endsAt"`
+	Late             bool      `json:"late"`
+	Continued        bool      `json:"continued"`
+	Continues        bool      `json:"continues"`
+	Lane             int       `json:"lane"`
+	Occupancy        Occupancy `json:"occupancy"`
+	Pinned           bool      `json:"pinned"`
+	Quadrant         Quadrant  `json:"quadrant"`
+	DueAt            time.Time `json:"dueAt"`
+	Stress           *int      `json:"stress"`
+	RemainingSeconds int64     `json:"remainingSeconds"`
 }
 
 type UnplannedItem struct {
@@ -481,66 +486,80 @@ func packSolo(item Item, due time.Time, exclusive *[]span, tracks [][]span) []Sc
 	return blocks
 }
 
+// packParallel places the item on the earliest free track. A single item never
+// overlaps itself: each slice starts no earlier than the previous slice ended.
 func packParallel(item Item, due time.Time, exclusive *[]span, tracks [][]span) []ScheduleBlock {
 	left := remainingSeconds(item)
 	var blocks []ScheduleBlock
+	var cursor time.Time
 	for left > 0 {
-		idx := earliestTrack(tracks)
+		idx, from := earliestTrackFrom(tracks, cursor)
 		if idx < 0 {
 			break
 		}
-		start, end, ok := takeSlice(&tracks[idx], &left)
+		start, end, ok := takeSliceFrom(&tracks[idx], from, &left)
 		if !ok {
 			break
 		}
 		blocks = append(blocks, newBlock(item, start, end, due, idx, OccupancyParallel))
 		*exclusive = subtractSpan(*exclusive, start, end)
+		cursor = end
 	}
 	return blocks
 }
 
 func newBlock(item Item, start, end, due time.Time, lane int, occupancy Occupancy) ScheduleBlock {
 	return ScheduleBlock{
-		ItemID:      item.ID,
-		Title:       item.Title,
-		ExternalKey: item.ExternalKey,
-		StartsAt:    start.UTC(),
-		EndsAt:      end.UTC(),
-		Late:        end.After(due),
-		Lane:        lane,
-		Occupancy:   occupancy,
+		ItemID:           item.ID,
+		Title:            item.Title,
+		ExternalKey:      item.ExternalKey,
+		StartsAt:         start.UTC(),
+		EndsAt:           end.UTC(),
+		Late:             end.After(due),
+		Lane:             lane,
+		Occupancy:        occupancy,
+		Pinned:           item.Pinned,
+		Quadrant:         item.Quadrant(),
+		DueAt:            due.UTC(),
+		Stress:           item.Stress,
+		RemainingSeconds: remainingSeconds(item),
 	}
 }
 
 func takeSlice(slots *[]span, left *int64) (time.Time, time.Time, bool) {
-	for len(*slots) > 0 {
-		slot := &(*slots)[0]
-		if !slot.end.After(slot.start) {
-			*slots = (*slots)[1:]
-			continue
-		}
-		take := slot.end.Sub(slot.start)
-		max := time.Duration(*left) * time.Second
-		if take > max {
-			take = max
-		}
-		start := slot.start
-		end := slot.start.Add(take)
-		slot.start = end
-		*left -= int64(take / time.Second)
-		if !slot.end.After(slot.start) {
-			*slots = (*slots)[1:]
-		}
-		return start, end, true
-	}
-	return time.Time{}, time.Time{}, false
+	return takeSliceFrom(slots, time.Time{}, left)
 }
 
-func earliestTrack(tracks [][]span) int {
+// takeSliceFrom carves up to *left seconds out of the first free span that ends
+// after from, never starting before from. Free time before the slice stays free.
+func takeSliceFrom(slots *[]span, from time.Time, left *int64) (time.Time, time.Time, bool) {
+	start, ok := firstStartFrom(*slots, from)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	end := start
+	for _, slot := range *slots {
+		if !slot.start.After(start) && slot.end.After(start) {
+			end = slot.end
+			break
+		}
+	}
+	take := end.Sub(start)
+	max := time.Duration(*left) * time.Second
+	if take > max {
+		take = max
+	}
+	end = start.Add(take)
+	*left -= int64(take / time.Second)
+	*slots = subtractSpan(*slots, start, end)
+	return start, end, true
+}
+
+func earliestTrackFrom(tracks [][]span, from time.Time) (int, time.Time) {
 	best := -1
 	var bestStart time.Time
 	for i, slots := range tracks {
-		start, ok := firstStart(slots)
+		start, ok := firstStartFrom(slots, from)
 		if !ok {
 			continue
 		}
@@ -549,14 +568,18 @@ func earliestTrack(tracks [][]span) int {
 			bestStart = start
 		}
 	}
-	return best
+	return best, bestStart
 }
 
-func firstStart(slots []span) (time.Time, bool) {
+func firstStartFrom(slots []span, from time.Time) (time.Time, bool) {
 	for _, slot := range slots {
-		if slot.end.After(slot.start) {
-			return slot.start, true
+		if !slot.end.After(slot.start) || !slot.end.After(from) {
+			continue
 		}
+		if slot.start.Before(from) {
+			return from, true
+		}
+		return slot.start, true
 	}
 	return time.Time{}, false
 }

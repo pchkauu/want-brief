@@ -135,6 +135,33 @@ func TestBuildScheduleSerialProjects(t *testing.T) {
 	}
 }
 
+func TestBuildScheduleBlockCarriesWhy(t *testing.T) {
+	due := msk(2026, 9, 20, 18, 0)
+	pid := uuid.New()
+	stress := 4
+	item := taskItem("Why", &pid, "Alpha", "#111", due, 4*3600, 3600, StatusToDo)
+	item.Pinned = true
+	item.Urgent = true
+	item.Important = true
+	item.Stress = &stress
+	item = item.WithQuadrant()
+	now := msk(2026, 9, 15, 8, 0)
+	got := BuildSchedule([]Item{item}, nil, now, now, now.Add(24*time.Hour))
+	block := laneNamed(got, "Alpha").Blocks[0]
+	if !block.Pinned || block.Quadrant != QuadrantDo {
+		t.Fatalf("pinned=%v quadrant=%s", block.Pinned, block.Quadrant)
+	}
+	if !block.DueAt.Equal(due.UTC()) {
+		t.Fatalf("dueAt %s want %s", block.DueAt, due.UTC())
+	}
+	if block.Stress == nil || *block.Stress != stress {
+		t.Fatalf("stress %v", block.Stress)
+	}
+	if block.RemainingSeconds != 3*3600 {
+		t.Fatalf("remaining %d", block.RemainingSeconds)
+	}
+}
+
 func TestBuildScheduleMeetingThenNextProject(t *testing.T) {
 	due := msk(2026, 9, 20, 18, 0)
 	a, b := uuid.New(), uuid.New()
@@ -357,6 +384,32 @@ func TestBuildScheduleFourthParallelWaits(t *testing.T) {
 	}
 	if late != 1 {
 		t.Fatalf("waiting blocks %d", late)
+	}
+}
+
+func TestBuildScheduleParallelNeverOverlapsItself(t *testing.T) {
+	due := msk(2026, 9, 20, 18, 0)
+	pid := uuid.New()
+	now := msk(2026, 9, 15, 8, 0)
+	item := taskItem("Long parallel", &pid, "Alpha", "#111", due, 4*3600, 0, StatusToDo)
+	item.Occupancy = OccupancyParallel
+	got := BuildSchedule([]Item{item}, nil, now, now, now.Add(24*time.Hour))
+	blocks := laneNamed(got, "Alpha").Blocks
+	if len(blocks) != 2 {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	first, second := blocks[0], blocks[1]
+	if !first.StartsAt.Equal(msk(2026, 9, 15, 10, 0).UTC()) || !first.EndsAt.Equal(msk(2026, 9, 15, 13, 0).UTC()) {
+		t.Fatalf("first %s-%s", first.StartsAt, first.EndsAt)
+	}
+	if second.StartsAt.Before(first.EndsAt) {
+		t.Fatalf("second %s starts before first ends %s", second.StartsAt, first.EndsAt)
+	}
+	if !second.StartsAt.Equal(msk(2026, 9, 15, 14, 0).UTC()) || !second.EndsAt.Equal(msk(2026, 9, 15, 15, 0).UTC()) {
+		t.Fatalf("second %s-%s", second.StartsAt, second.EndsAt)
+	}
+	if first.Lane != 0 || second.Lane != 0 {
+		t.Fatalf("lanes %d %d", first.Lane, second.Lane)
 	}
 }
 

@@ -400,6 +400,11 @@ export type ScheduleBlock = {
   continues: boolean
   lane: number
   occupancy: Occupancy
+  pinned: boolean
+  quadrant: Quadrant
+  dueAt: string
+  stress: number | null
+  remainingSeconds: number
 }
 
 export type ScheduleLane = {

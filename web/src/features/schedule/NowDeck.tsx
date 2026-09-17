@@ -1,0 +1,198 @@
+import { CaretRight } from '@phosphor-icons/react'
+import { span } from '../../shared/format'
+import { TaskTimer } from '../tasks/TaskTimer'
+import type { ScheduleBlock, TimeInterval } from '../../types'
+import { clock, phaseLabel, quadrantLabel, type NowPick } from './now'
+
+export type DeckProject = { name: string; color: string }
+
+type Props = {
+  pick: NowPick
+  loading: boolean
+  running: TimeInterval[]
+  lateCount: number
+  lateId: string | null
+  projectOf: (itemId: string) => DeckProject | undefined
+  titleOf: (itemId: string) => string | undefined
+  onOpen: (id: string) => void
+  onNextWeek: () => void
+}
+
+const NEXT_LIMIT = 4
+
+function blockSeconds(block: ScheduleBlock): number {
+  return Math.max(0, Math.round((new Date(block.endsAt).getTime() - new Date(block.startsAt).getTime()) / 1000))
+}
+
+function dueLabel(iso: string): string {
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'Europe/Moscow' }).format(
+    new Date(iso),
+  )
+}
+
+function WhyChips({ block }: { block: ScheduleBlock }) {
+  return (
+    <span className="sched-block-flags">
+      {block.pinned ? <span className="sched-chip live">Pinned</span> : null}
+      <span className="sched-chip">{quadrantLabel(block.quadrant)}</span>
+      {block.stress != null ? <span className="sched-chip">Stress {block.stress}</span> : null}
+      {block.late ? <span className="sched-chip late">late</span> : null}
+    </span>
+  )
+}
+
+function Featured({
+  block,
+  project,
+  interval,
+  onOpen,
+}: {
+  block: ScheduleBlock
+  project?: DeckProject
+  interval?: TimeInterval
+  onOpen: (id: string) => void
+}) {
+  return (
+    <article className="sched-deck-card" onClick={() => onOpen(block.itemId)}>
+      <div className="sched-deck-card-main">
+        <p className="sched-deck-meta">
+          <i className="sched-swatch" style={{ background: project?.color || 'var(--accent)' }} />
+          <span>{project?.name || 'No project'}</span>
+          {block.externalKey ? <span className="mono">{block.externalKey}</span> : null}
+        </p>
+        <strong className="sched-deck-title">
+          {block.title}
+          <CaretRight size={12} weight="light" aria-hidden />
+        </strong>
+        <p className="sched-deck-facts mono">
+          <span>
+            {clock(block.startsAt)}-{clock(block.endsAt)}
+          </span>
+          <span>{span(block.remainingSeconds)} left</span>
+          <span>due {dueLabel(block.dueAt)}</span>
+        </p>
+        <WhyChips block={block} />
+      </div>
+      <TaskTimer itemId={block.itemId} running={interval} prominent />
+    </article>
+  )
+}
+
+function Row({
+  block,
+  project,
+  interval,
+  startable,
+  onOpen,
+}: {
+  block: ScheduleBlock
+  project?: DeckProject
+  interval?: TimeInterval
+  startable: boolean
+  onOpen: (id: string) => void
+}) {
+  return (
+    <li className="sched-deck-row" onClick={() => onOpen(block.itemId)}>
+      <time className="mono" dateTime={block.startsAt}>
+        {clock(block.startsAt)}
+      </time>
+      <i className="sched-swatch" style={{ background: project?.color || 'var(--accent)' }} />
+      <span className="sched-deck-row-title">
+        {block.externalKey ? <span className="mono">{block.externalKey} </span> : null}
+        {block.title}
+      </span>
+      {project ? <span className="sched-deck-row-project">{project.name}</span> : null}
+      <span className="sched-deck-row-span mono">{span(blockSeconds(block))}</span>
+      {block.late ? <span className="sched-chip late">late</span> : null}
+      <TaskTimer itemId={block.itemId} running={interval} prominent={startable} />
+    </li>
+  )
+}
+
+export function NowDeck({ pick, loading, running, lateCount, lateId, projectOf, titleOf, onOpen, onNextWeek }: Props) {
+  const featured = pick.current[0] ?? pick.upcoming[0]
+  const alsoNow = pick.current.slice(1)
+  const next = pick.phase === 'now' ? pick.upcoming : pick.upcoming.slice(1)
+  const planned = new Set([...pick.current.map((row) => row.itemId), featured?.itemId].filter(Boolean))
+  const offPlan = running.filter((row) => !planned.has(row.itemId))
+  const intervalOf = (itemId: string) => running.find((row) => row.itemId === itemId)
+
+  return (
+    <section className="sched-deck">
+      <div className="sched-deck-core">
+        <header className="sched-deck-head">
+          <p className="sched-deck-phase">
+            {loading && !featured ? 'Packing' : phaseLabel(pick)}
+            {pick.phase === 'now' ? <span className="mono"> {clock(new Date().toISOString())}</span> : null}
+          </p>
+          {lateCount > 0 ? (
+            <p className="sched-overflow">
+              {lateCount} late
+              <button type="button" className="ghost" disabled={!lateId} onClick={() => lateId && onOpen(lateId)}>
+                Open
+              </button>
+            </p>
+          ) : null}
+        </header>
+        {loading && !featured ? <div className="sched-deck-skel" aria-hidden /> : null}
+        {featured ? (
+          <Featured block={featured} project={projectOf(featured.itemId)} interval={intervalOf(featured.itemId)} onOpen={onOpen} />
+        ) : null}
+        {!loading && !featured ? (
+          <p className="sched-deck-empty">
+            {pick.phase === 'after' ? 'Nothing left in the plan today.' : 'Nothing packed for today.'}
+            <button type="button" className="ghost" onClick={onNextWeek}>
+              Next week ›
+            </button>
+          </p>
+        ) : null}
+        {alsoNow.length > 0 ? (
+          <>
+            <p className="sched-deck-kicker">Also now</p>
+            <ul className="sched-deck-list">
+              {alsoNow.map((row) => (
+                <Row
+                  key={`${row.itemId}-${row.startsAt}`}
+                  block={row}
+                  project={projectOf(row.itemId)}
+                  interval={intervalOf(row.itemId)}
+                  startable
+                  onOpen={onOpen}
+                />
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {next.length > 0 ? (
+          <>
+            <p className="sched-deck-kicker">Up next</p>
+            <ul className="sched-deck-list">
+              {next.slice(0, NEXT_LIMIT).map((row) => (
+                <Row
+                  key={`${row.itemId}-${row.startsAt}`}
+                  block={row}
+                  project={projectOf(row.itemId)}
+                  interval={intervalOf(row.itemId)}
+                  startable={false}
+                  onOpen={onOpen}
+                />
+              ))}
+            </ul>
+            {next.length > NEXT_LIMIT ? <p className="sched-deck-more">{next.length - NEXT_LIMIT} more today</p> : null}
+          </>
+        ) : null}
+        {offPlan.map((row) => (
+          <p key={row.id} className="sched-deck-offplan">
+            <span>
+              Running <em>off plan</em>:
+            </span>
+            <button type="button" className="ghost sched-deck-link" onClick={() => onOpen(row.itemId)}>
+              {titleOf(row.itemId) ?? 'a task outside this plan'}
+            </button>
+            <TaskTimer itemId={row.itemId} running={row} />
+          </p>
+        ))}
+      </div>
+    </section>
+  )
+}

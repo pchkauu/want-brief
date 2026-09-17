@@ -1,5 +1,5 @@
 import { CalendarBlank, CaretRight } from '@phosphor-icons/react'
-import { useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
@@ -8,6 +8,8 @@ import { moscowWeek, moscowYmd, shiftWeeks } from '../../shared/moscow'
 import { openTask } from '../../shared/taskOverlay'
 import { Window } from '../../shared/Window'
 import { NeedsFields } from './NeedsFields'
+import { NowDeck, type DeckProject } from './NowDeck'
+import { clock, covering, pickNow, todayBlocks } from './now'
 import type { ScheduleBlock, ScheduleBusy, ScheduleCapacity, ScheduleLane, ScheduleOverflow } from '../../types'
 import './schedule.css'
 
@@ -43,15 +45,6 @@ function endMinutes(iso: string, startMin: number): number {
   return value
 }
 
-function clockLabel(iso = new Date().toISOString()): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Moscow',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(iso))
-}
-
 function weekKicker(days: string[]): string {
   const first = new Date(`${days[0]}T12:00:00+03:00`)
   const last = new Date(`${days[6]}T12:00:00+03:00`)
@@ -82,7 +75,7 @@ function weekColumns(days: string[], today: string, collapseWeekend: boolean): s
   return days
     .map((ymd) => {
       const head = dayHead(ymd, today)
-      if (head.today) return 'minmax(7.5rem, 1.35fr)'
+      if (head.today) return 'minmax(12rem, 2fr)'
       if (head.weekend && collapseWeekend) return 'minmax(3.2rem, 0.42fr)'
       return 'minmax(4.4rem, 1fr)'
     })
@@ -127,33 +120,32 @@ function Block({
   row,
   color,
   running,
-  extra,
-  expanded,
-  stackIndex,
+  focus,
+  tracks,
   onOpen,
-  onToggleStack,
 }: {
   row: ScheduleBlock
   color: string
   running: boolean
-  extra: number
-  expanded: boolean
-  stackIndex: number
+  focus: boolean
+  tracks: number
   onOpen: (id: string) => void
-  onToggleStack?: () => void
 }) {
   const start = minutesOf(row.startsAt)
   const end = endMinutes(row.endsAt, start)
-  const top = ((start - START * 60) / 60) * HOUR + (expanded ? stackIndex * 24 : 0)
+  const top = ((start - START * 60) / 60) * HOUR
   const height = Math.max(((end - start) / 60) * HOUR, 34)
   const short = height < HOUR
+  const split = row.occupancy === 'parallel' && tracks > 1
   const cls = [
     'sched-block',
     row.late ? 'late' : '',
     row.continued ? 'continued' : '',
     row.continues ? 'continues' : '',
     running ? 'running' : '',
+    focus ? 'focus' : '',
     short ? 'short' : '',
+    split ? 'parallel' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -161,17 +153,20 @@ function Block({
   const fill = row.late
     ? `color-mix(in srgb, var(--danger) 22%, transparent)`
     : `color-mix(in srgb, ${color || 'var(--accent)'} 18%, transparent)`
-  const border = row.late
-    ? `color-mix(in srgb, var(--danger) 55%, transparent)`
-    : `color-mix(in srgb, ${color || 'var(--accent)'} 45%, transparent)`
+  const border = focus
+    ? `color-mix(in srgb, var(--accent-2) 80%, transparent)`
+    : row.late
+      ? `color-mix(in srgb, var(--danger) 28%, transparent)`
+      : `color-mix(in srgb, ${color || 'var(--accent)'} 45%, transparent)`
+  const style = {
+    top,
+    height,
+    background: fill,
+    borderColor: border,
+    ...(split ? { '--track': row.lane, '--tracks': tracks } : {}),
+  } as CSSProperties
   return (
-    <button
-      type="button"
-      className={cls}
-      title={label}
-      style={{ top, height, background: fill, borderColor: border }}
-      onClick={() => onOpen(row.itemId)}
-    >
+    <button type="button" className={cls} title={label} style={style} onClick={() => onOpen(row.itemId)}>
       <span className="sched-block-line">
         <strong>{row.title}</strong>
         {short && row.externalKey ? <span className="mono">{row.externalKey}</span> : null}
@@ -179,47 +174,9 @@ function Block({
       </span>
       {!short && row.externalKey ? <span className="mono">{row.externalKey}</span> : null}
       <span className="sched-block-flags">
-        {row.continued || row.continues ? <span className="sched-chip">continues</span> : null}
+        {row.continued ? <span className="sched-chip">continues</span> : null}
         {row.late ? <span className="sched-chip late">late</span> : null}
         {running ? <span className="sched-chip live">in time</span> : null}
-        {extra > 0 ? (
-          <span
-            className="sched-chip more"
-            role="button"
-            tabIndex={0}
-            onClick={(event) => {
-              event.stopPropagation()
-              onToggleStack?.()
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' && event.key !== ' ') return
-              event.preventDefault()
-              event.stopPropagation()
-              onToggleStack?.()
-            }}
-          >
-            +{extra}
-          </span>
-        ) : null}
-        {expanded ? (
-          <span
-            className="sched-chip more"
-            role="button"
-            tabIndex={0}
-            onClick={(event) => {
-              event.stopPropagation()
-              onToggleStack?.()
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' && event.key !== ' ') return
-              event.preventDefault()
-              event.stopPropagation()
-              onToggleStack?.()
-            }}
-          >
-            Hide
-          </span>
-        ) : null}
       </span>
     </button>
   )
@@ -266,46 +223,19 @@ function NowLine({ today, ymd }: { today: string; ymd: string }) {
   return (
     <i className={below ? 'sched-now below' : 'sched-now'} style={{ top }}>
       <span>
-        {clockLabel()}
+        {clock(new Date().toISOString())}
         {edge ? ' - grid 08-18' : ''}
       </span>
     </i>
   )
 }
 
-type Stacked = { row: ScheduleBlock; extra: number; expanded: boolean; hourKey: string; stackIndex: number }
-
-function stackDay(blocks: ScheduleBlock[], ymd: string, openHour: string | null, runningIds: Set<string>): Stacked[] {
-  const day = blocks.filter((row) => ymdOf(row.startsAt) === ymd)
-  const out: Stacked[] = []
-  const parallel = new Map<number, ScheduleBlock[]>()
-  for (const row of day) {
-    if (row.occupancy !== 'parallel') {
-      out.push({ row, extra: 0, expanded: false, hourKey: '', stackIndex: 0 })
-      continue
-    }
-    const key = minutesOf(row.startsAt)
-    const group = parallel.get(key) ?? []
-    group.push(row)
-    parallel.set(key, group)
-  }
-  for (const [start, group] of parallel) {
-    const hourKey = `${ymd}-${start}`
-    const expanded = openHour === hourKey
-    if (expanded || group.length === 1) {
-      group.forEach((row, index) => {
-        out.push({ row, extra: 0, expanded: expanded && group.length > 1, hourKey, stackIndex: index })
-      })
-      continue
-    }
-    const preferred =
-      group.find((row) => runningIds.has(row.itemId)) ??
-      group.find((row) => row.late) ??
-      group.find((row) => row.lane === 0) ??
-      group[0]
-    out.push({ row: preferred, extra: group.length - 1, expanded: false, hourKey, stackIndex: 0 })
-  }
-  return out
+// layoutDay returns the day's blocks and how many parallel tracks the day uses.
+// Solo blocks span the column; parallel blocks split it by track when more than one is in use.
+function layoutDay(blocks: ScheduleBlock[], ymd: string): { rows: ScheduleBlock[]; tracks: number } {
+  const rows = blocks.filter((row) => ymdOf(row.startsAt) === ymd)
+  const tracks = rows.reduce((max, row) => (row.occupancy === 'parallel' ? Math.max(max, row.lane + 1) : max), 0)
+  return { rows, tracks }
 }
 
 function Lane({
@@ -314,20 +244,18 @@ function Lane({
   busy,
   today,
   runningIds,
-  openHour,
+  focusIds,
   onOpen,
   onBusy,
-  onToggleHour,
 }: {
   lane: ScheduleLane
   days: string[]
   busy: ScheduleBusy[]
   today: string
   runningIds: Set<string>
-  openHour: string | null
+  focusIds: Set<string>
   onOpen: (id: string) => void
   onBusy: (id: string) => void
-  onToggleHour: (key: string) => void
 }) {
   const color = lane.projectColor || 'var(--accent)'
   return (
@@ -337,7 +265,7 @@ function Lane({
         <strong>{lane.projectName}</strong>
       </div>
       {days.map((ymd) => {
-        const rows = stackDay(lane.blocks, ymd, openHour, runningIds)
+        const { rows, tracks } = layoutDay(lane.blocks, ymd)
         const empty = rows.length === 0 && !dayHead(ymd, today).weekend
         return (
           <div key={ymd} className={dayTone(ymd, today)} style={{ height: DAY_HEIGHT }}>
@@ -346,17 +274,15 @@ function Lane({
               <Hatch key={`${row.startsAt}-${row.title}`} row={row} onOpen={onBusy} />
             ))}
             <NowLine today={today} ymd={ymd} />
-            {rows.map((item) => (
+            {rows.map((row) => (
               <Block
-                key={`${item.row.itemId}-${item.row.startsAt}`}
-                row={item.row}
+                key={`${row.itemId}-${row.startsAt}`}
+                row={row}
                 color={color}
-                running={runningIds.has(item.row.itemId)}
-                extra={item.extra}
-                expanded={item.expanded}
-                stackIndex={item.stackIndex}
+                running={runningIds.has(row.itemId)}
+                focus={focusIds.has(`${row.itemId}-${row.startsAt}`)}
+                tracks={tracks}
                 onOpen={onOpen}
-                onToggleStack={item.hourKey ? () => onToggleHour(item.hourKey) : undefined}
               />
             ))}
             {empty ? <p className="sched-noslot">No slots</p> : null}
@@ -371,14 +297,10 @@ function Pressure({
   overflow,
   capacity,
   meetings,
-  lateId,
-  onOpenLate,
 }: {
   overflow: ScheduleOverflow
   capacity: ScheduleCapacity
   meetings: number
-  lateId: string | null
-  onOpenLate: (id: string) => void
 }) {
   const packed = capacity.packedSeconds
   const free = capacity.freeSeconds
@@ -399,14 +321,6 @@ function Pressure({
             ? `Will not fit: ${span(overflow.seconds)}`
             : `This week: ${meetings} meetings, ${span(free)} free for tasks`}
       </p>
-      {overflow.itemCount > 0 ? (
-        <p className="sched-overflow">
-          {overflow.itemCount} late
-          <button type="button" className="ghost" disabled={!lateId} onClick={() => lateId && onOpenLate(lateId)}>
-            Open
-          </button>
-        </p>
-      ) : null}
       <ul className="sched-legend">
         <li className="late">Late</li>
         <li className="live">In time</li>
@@ -438,9 +352,13 @@ export function ScheduleScreen() {
   const gantt = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState(() => new Date())
   const [kind, setKind] = useState<'work' | 'followup'>('work')
-  const [openHour, setOpenHour] = useState<string | null>(null)
+  const [tick, setTick] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setTick(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
   const week = useMemo(() => moscowWeek(anchor), [anchor])
-  const today = moscowYmd()
+  const today = moscowYmd(new Date(tick))
   const intervals = useQuery({
     queryKey: ['intervals'],
     queryFn: api.intervals,
@@ -461,19 +379,25 @@ export function ScheduleScreen() {
   const gridStyle = { '--sched-cols': cols } as CSSProperties
   const lateId = firstLateId(lanes)
   const range = weekKicker(week.days)
-
-  function toggleHour(key: string) {
-    setOpenHour((current) => (current === key ? null : key))
+  const todays = todayBlocks(lanes, today)
+  const pick = pickNow(todays, tick)
+  const focusIds = new Set(covering(todays, tick).map((row) => `${row.itemId}-${row.startsAt}`))
+  const projectByItem = new Map<string, DeckProject>()
+  const titleByItem = new Map<string, string>()
+  for (const lane of lanes) {
+    for (const row of lane.blocks) {
+      projectByItem.set(row.itemId, { name: lane.projectName, color: lane.projectColor || 'var(--accent)' })
+      titleByItem.set(row.itemId, row.externalKey ? `${row.externalKey} ${row.title}` : row.title)
+    }
   }
 
   function scrollNow() {
-    gantt.current?.querySelector('.sched-now')?.scrollIntoView({ block: 'center', inline: 'nearest' })
+    gantt.current?.querySelector('.sched-now')?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
   }
 
   return (
     <Window
       className="sched-window"
-      kicker={range}
       title={kind === 'followup' ? 'Follow-up' : 'Schedule'}
       actions={
         <div className="sched-actions">
@@ -511,9 +435,20 @@ export function ScheduleScreen() {
         </div>
       }
     >
+      <NowDeck
+        pick={pick}
+        loading={report.isLoading && !report.data}
+        running={running}
+        lateCount={report.data?.overflow.itemCount ?? 0}
+        lateId={lateId}
+        projectOf={(id) => projectByItem.get(id)}
+        titleOf={(id) => titleByItem.get(id)}
+        onOpen={(id) => openTask(navigate, id)}
+        onNextWeek={() => setAnchor((d) => shiftWeeks(d, 1))}
+      />
       <div className={unplanned.length > 0 ? 'sched-split' : 'sched-split solo'}>
         <div className="sched-gantt">
-          <div className="sched-gantt-core" ref={gantt} style={gridStyle}>
+          <div className={collapseWeekend ? 'sched-gantt-core compact' : 'sched-gantt-core'} ref={gantt} style={gridStyle}>
             {report.isError ? <p className="error">{report.error.message}</p> : null}
             {report.isLoading && !report.data ? (
               <div className="sched-skel" aria-hidden>
@@ -533,13 +468,7 @@ export function ScheduleScreen() {
             ) : report.data || !report.isError ? (
               <>
                 {report.data ? (
-                  <Pressure
-                    overflow={report.data.overflow}
-                    capacity={report.data.capacity}
-                    meetings={meetingCount(busy)}
-                    lateId={lateId}
-                    onOpenLate={(id) => openTask(navigate, id)}
-                  />
+                  <Pressure overflow={report.data.overflow} capacity={report.data.capacity} meetings={meetingCount(busy)} />
                 ) : null}
                 <p className="sched-week-range">{range}</p>
                 <div className="sched-head">
@@ -576,10 +505,9 @@ export function ScheduleScreen() {
                       busy={busy}
                       today={today}
                       runningIds={runningIds}
-                      openHour={openHour}
+                      focusIds={focusIds}
                       onOpen={(id) => openTask(navigate, id)}
                       onBusy={(id) => navigate(`/events/${id}`)}
-                      onToggleHour={toggleHour}
                     />
                   ))
                 )}
