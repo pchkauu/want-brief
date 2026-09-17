@@ -200,7 +200,7 @@ func (s *Service) CreateItemNote(ctx context.Context, itemID uuid.UUID, body str
 	if _, err := s.GetItem(ctx, itemID); err != nil {
 		return domain.ItemNote{}, err
 	}
-	note, err := domain.NewItemNote(itemID, body)
+	note, err := domain.NewItemNote(itemID, body, domain.SourceManual)
 	if err != nil {
 		return domain.ItemNote{}, err
 	}
@@ -365,7 +365,7 @@ func (s *Service) SyncItem(ctx context.Context, id uuid.UUID) (domain.Item, erro
 		if body == "" || seen[body] {
 			continue
 		}
-		note, err := domain.NewItemNote(item.ID, body)
+		note, err := domain.NewItemNote(item.ID, body, item.SourceKind)
 		if err != nil {
 			return domain.Item{}, err
 		}

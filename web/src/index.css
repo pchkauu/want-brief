@@ -575,6 +575,7 @@ a.matrix-cell:hover { background: var(--bg-3); }
   display: grid;
   grid-template-columns: 1.35fr 1fr 1fr;
   gap: 1rem;
+  align-items: start;
 }
 .plaza-tile {
   display: block;
@@ -587,20 +588,12 @@ a.matrix-cell:hover { background: var(--bg-3); }
   backdrop-filter: blur(18px);
   animation: plaza-up 500ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
-.plaza-tile-lg { grid-column: 1 / 2; grid-row: span 2; }
 .plaza-core {
-  min-height: 100%;
+  min-height: auto;
   padding: 1.35rem 1.45rem 1.5rem;
   border-radius: calc(2rem - 6px);
   background: color-mix(in srgb, var(--window) 88%, transparent);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
-}
-.plaza-tile-lg .plaza-core {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  min-height: 16rem;
-  padding: 1.7rem 1.8rem;
 }
 .plaza-title {
   display: flex;
@@ -616,10 +609,6 @@ a.matrix-cell:hover { background: var(--bg-3); }
   border-radius: 999px;
   display: block;
   flex: 0 0 auto;
-}
-.plaza-tile-lg .plaza-title .plaza-swatch {
-  width: 0.9rem;
-  height: 0.9rem;
 }
 .plaza-meta {
   margin: 0.55rem 0 0;
@@ -1805,8 +1794,6 @@ a.matrix-cell:hover { background: var(--bg-3); }
 
 @media (max-width: 900px) {
   .grid-2, .matrix, .stats, .clocks, .bars li, .plaza-bento, .plaza-metrics, .today-bento { grid-template-columns: 1fr; }
-  .plaza-tile-lg { grid-column: auto; grid-row: auto; }
-  .plaza-tile-lg .plaza-core { min-height: 10rem; }
   .matrix { min-height: 0; }
   .hero { min-height: 0; }
 }

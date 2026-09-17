@@ -9,7 +9,6 @@ type Props = {
   total: number
   events: number
   people: number
-  featured?: boolean
   delay: number
 }
 
@@ -20,11 +19,9 @@ export function ProjectCard({
   total,
   events,
   people,
-  featured,
   delay,
 }: Props) {
   const classes = ['plaza-tile']
-  if (featured) classes.push('plaza-tile-lg')
   if (project.archivedAt) classes.push('plaza-tile-archived')
   return (
     <Link

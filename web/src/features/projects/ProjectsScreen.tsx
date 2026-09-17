@@ -91,7 +91,7 @@ export function ProjectsScreen() {
       </header>
       {projects.isLoading ? (
         <div className="plaza-bento" aria-hidden>
-          <div className="plaza-tile plaza-tile-lg">
+          <div className="plaza-tile">
             <div className="plaza-core plaza-skel" />
           </div>
           <div className="plaza-tile">
@@ -116,7 +116,6 @@ export function ProjectsScreen() {
                 total={counts.total}
                 events={upcomingEvents(series.data, project.id)}
                 people={project.people?.length ?? 0}
-                featured={index === 0}
                 delay={index * 80}
               />
             )

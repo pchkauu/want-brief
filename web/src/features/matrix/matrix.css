@@ -85,6 +85,7 @@
   margin: 0;
   padding: 0;
   display: grid;
+  align-content: start;
   gap: 0.45rem;
   overflow: auto;
   min-height: 0;
@@ -99,13 +100,23 @@
 }
 .prio-core li:hover { background: rgba(255, 255, 255, 0.07); }
 .prio-core li:active { cursor: grabbing; }
-.prio-core li a {
+.prio-core li a,
+.prio-core li button.ghost {
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
+  text-align: left;
   text-decoration: none;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.prio-core li a:hover { color: var(--accent-2); }
+.prio-core li a:hover,
+.prio-core li button.ghost:hover { color: var(--accent-2); background: transparent; }
+.prio-core li button.ghost:active { transform: none; }
 .prio-core li small { color: var(--muted); font-size: 12px; }
 
 .prio-list-head {

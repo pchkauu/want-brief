@@ -5,6 +5,7 @@ export const PERSON_DRAG = 'application/x-want-item'
 
 export const BOND_KINDS: { id: BondKind; label: string }[] = [
   { id: 'acquaintance', label: 'Acquaintance' },
+  { id: 'colleague', label: 'Colleague' },
   { id: 'comrade', label: 'Comrade' },
   { id: 'friend', label: 'Friend' },
   { id: 'relative', label: 'Relative' },

@@ -93,3 +93,24 @@ func TestParseBondKindOther(t *testing.T) {
 		t.Fatalf("got %s", kind)
 	}
 }
+
+func TestParseBondKindColleague(t *testing.T) {
+	kind, err := ParseBondKind("colleague")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != BondKindColleague {
+		t.Fatalf("got %s", kind)
+	}
+}
+
+func TestNewPersonBondColleague(t *testing.T) {
+	id := uuid.New()
+	bond, err := NewPersonBond(nil, id, BondKindColleague, "", time.Now(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bond.Kind != BondKindColleague {
+		t.Fatalf("got %s", bond.Kind)
+	}
+}

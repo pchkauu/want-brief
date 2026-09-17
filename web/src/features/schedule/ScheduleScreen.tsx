@@ -9,7 +9,8 @@ import { openTask } from '../../shared/taskOverlay'
 import { Window } from '../../shared/Window'
 import { NeedsFields } from './NeedsFields'
 import { NowDeck, type DeckProject } from './NowDeck'
-import { clock, covering, pickNow, todayBlocks } from './now'
+import { ScheduleTable } from './ScheduleTable'
+import { clock, covering, dayHead, pickNow, todayBlocks } from './now'
 import type { ScheduleBlock, ScheduleBusy, ScheduleCapacity, ScheduleLane, ScheduleOverflow } from '../../types'
 import './schedule.css'
 
@@ -17,6 +18,29 @@ const HOUR = 48
 const START = 8
 const HOURS = 11
 const DAY_HEIGHT = HOURS * HOUR
+const VIEW_KEY = 'schedule.view'
+
+type View = 'calendar' | 'list'
+
+function readView(): View {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'
+  } catch {
+    return 'calendar'
+  }
+}
+
+function storeView(view: View) {
+  try {
+    window.localStorage.setItem(VIEW_KEY, view)
+  } catch {
+    // storage unavailable, keep in memory only
+  }
+}
+
+function hasMeeting(busy: ScheduleBusy[], ymd: string): boolean {
+  return busy.some((row) => row.seriesId && ymdOf(row.startsAt) === ymd)
+}
 
 function ymdOf(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -51,17 +75,6 @@ function weekKicker(days: string[]): string {
   const fmt = (d: Date) =>
     new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Moscow' }).format(d)
   return `${fmt(first)} - ${fmt(last)}`
-}
-
-function dayHead(ymd: string, today: string) {
-  const date = new Date(`${ymd}T12:00:00+03:00`)
-  const weekday = date.getDay()
-  return {
-    today: ymd === today,
-    weekend: weekday === 0 || weekday === 6,
-    week: new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'Europe/Moscow' }).format(date),
-    num: new Intl.DateTimeFormat('en-GB', { day: 'numeric', timeZone: 'Europe/Moscow' }).format(date),
-  }
 }
 
 function dayTone(ymd: string, today: string): string {
@@ -169,7 +182,6 @@ function Block({
     <button type="button" className={cls} title={label} style={style} onClick={() => onOpen(row.itemId)}>
       <span className="sched-block-line">
         <strong>{row.title}</strong>
-        {short && row.externalKey ? <span className="mono">{row.externalKey}</span> : null}
         <CaretRight size={12} weight="light" aria-hidden />
       </span>
       {!short && row.externalKey ? <span className="mono">{row.externalKey}</span> : null}
@@ -266,7 +278,7 @@ function Lane({
       </div>
       {days.map((ymd) => {
         const { rows, tracks } = layoutDay(lane.blocks, ymd)
-        const empty = rows.length === 0 && !dayHead(ymd, today).weekend
+        const empty = rows.length === 0 && !dayHead(ymd, today).weekend && !hasMeeting(busy, ymd)
         return (
           <div key={ymd} className={dayTone(ymd, today)} style={{ height: DAY_HEIGHT }}>
             {ymd === today ? <HoursRail /> : null}
@@ -340,7 +352,7 @@ function DayCells({ days, today, busy, onBusy }: { days: string[]; today: string
             <Hatch key={`${row.startsAt}-${row.title}`} row={row} onOpen={onBusy} />
           ))}
           <NowLine today={today} ymd={ymd} />
-          {!dayHead(ymd, today).weekend ? <p className="sched-noslot">No slots</p> : null}
+          {!dayHead(ymd, today).weekend && !hasMeeting(busy, ymd) ? <p className="sched-noslot">No slots</p> : null}
         </div>
       ))}
     </>
@@ -352,6 +364,7 @@ export function ScheduleScreen() {
   const gantt = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState(() => new Date())
   const [kind, setKind] = useState<'work' | 'followup'>('work')
+  const [view, setView] = useState<View>(readView)
   const [tick, setTick] = useState(() => Date.now())
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 60_000)
@@ -391,8 +404,14 @@ export function ScheduleScreen() {
     }
   }
 
+  function switchView(next: View) {
+    setView(next)
+    storeView(next)
+  }
+
   function scrollNow() {
-    gantt.current?.querySelector('.sched-now')?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    const target = view === 'list' ? '.sched-table-day.today' : '.sched-now'
+    gantt.current?.querySelector(target)?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
   }
 
   return (
@@ -415,6 +434,14 @@ export function ScheduleScreen() {
               </button>
             </div>
             <p className="sched-pack-hint">{kind === 'work' ? 'Dev due' : 'Review and QA due'}</p>
+          </div>
+          <div className="sched-tabs">
+            <button type="button" className={view === 'calendar' ? 'ghost on' : 'ghost'} onClick={() => switchView('calendar')}>
+              Calendar
+            </button>
+            <button type="button" className={view === 'list' ? 'ghost on' : 'ghost'} onClick={() => switchView('list')}>
+              List
+            </button>
           </div>
           <div className="sched-tabs">
             <button type="button" className="ghost" aria-label="Previous week" onClick={() => setAnchor((d) => shiftWeeks(d, -1))}>
@@ -443,6 +470,7 @@ export function ScheduleScreen() {
         lateId={lateId}
         projectOf={(id) => projectByItem.get(id)}
         titleOf={(id) => titleByItem.get(id)}
+        showNext={view === 'calendar'}
         onOpen={(id) => openTask(navigate, id)}
         onNextWeek={() => setAnchor((d) => shiftWeeks(d, 1))}
       />
@@ -471,47 +499,63 @@ export function ScheduleScreen() {
                   <Pressure overflow={report.data.overflow} capacity={report.data.capacity} meetings={meetingCount(busy)} />
                 ) : null}
                 <p className="sched-week-range">{range}</p>
-                <div className="sched-head">
-                  {week.days.map((ymd) => {
-                    const head = dayHead(ymd, today)
-                    return (
-                      <div
-                        key={ymd}
-                        className={['sched-head-day', head.today ? 'today' : '', !head.today && head.weekend ? 'weekend' : '']
-                          .filter(Boolean)
-                          .join(' ')}
-                      >
-                        <small>{head.week}</small>
-                        <strong>{head.num}</strong>
-                        {head.today ? <em>Today</em> : null}
-                      </div>
-                    )
-                  })}
-                </div>
-                {lanes.length === 0 ? (
-                  <>
-                    <div className="sched-lane sched-lane-empty">
-                      <div className="sched-lane-name" />
-                      <DayCells days={week.days} today={today} busy={busy} onBusy={(id) => navigate(`/events/${id}`)} />
-                    </div>
-                    <p className="sched-empty muted">No scheduled work this week.</p>
-                  </>
+                {view === 'list' ? (
+                  <ScheduleTable
+                    lanes={lanes}
+                    busy={busy}
+                    days={week.days}
+                    today={today}
+                    runningIds={runningIds}
+                    focusIds={focusIds}
+                    projectOf={(id) => projectByItem.get(id)}
+                    onOpen={(id) => openTask(navigate, id)}
+                    onBusy={(id) => navigate(`/events/${id}`)}
+                  />
                 ) : (
-                  lanes.map((lane) => (
-                    <Lane
-                      key={lane.projectId ?? 'none'}
-                      lane={lane}
-                      days={week.days}
-                      busy={busy}
-                      today={today}
-                      runningIds={runningIds}
-                      focusIds={focusIds}
-                      onOpen={(id) => openTask(navigate, id)}
-                      onBusy={(id) => navigate(`/events/${id}`)}
-                    />
-                  ))
+                  <>
+                    <div className="sched-head">
+                      {week.days.map((ymd) => {
+                        const head = dayHead(ymd, today)
+                        return (
+                          <div
+                            key={ymd}
+                            className={['sched-head-day', head.today ? 'today' : '', !head.today && head.weekend ? 'weekend' : '']
+                              .filter(Boolean)
+                              .join(' ')}
+                          >
+                            <small>{head.week}</small>
+                            <strong>{head.num}</strong>
+                            {head.today ? <em>Today</em> : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {lanes.length === 0 ? (
+                      <>
+                        <div className="sched-lane sched-lane-empty">
+                          <div className="sched-lane-name" />
+                          <DayCells days={week.days} today={today} busy={busy} onBusy={(id) => navigate(`/events/${id}`)} />
+                        </div>
+                        <p className="sched-empty muted">No scheduled work this week.</p>
+                      </>
+                    ) : (
+                      lanes.map((lane) => (
+                        <Lane
+                          key={lane.projectId ?? 'none'}
+                          lane={lane}
+                          days={week.days}
+                          busy={busy}
+                          today={today}
+                          runningIds={runningIds}
+                          focusIds={focusIds}
+                          onOpen={(id) => openTask(navigate, id)}
+                          onBusy={(id) => navigate(`/events/${id}`)}
+                        />
+                      ))
+                    )}
+                    <p className="sched-readonly">Packed layout, not a drag calendar</p>
+                  </>
                 )}
-                <p className="sched-readonly">Packed layout, not a drag calendar</p>
               </>
             ) : null}
           </div>

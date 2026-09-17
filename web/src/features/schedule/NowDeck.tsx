@@ -14,11 +14,10 @@ type Props = {
   lateId: string | null
   projectOf: (itemId: string) => DeckProject | undefined
   titleOf: (itemId: string) => string | undefined
+  showNext: boolean
   onOpen: (id: string) => void
   onNextWeek: () => void
 }
-
-const NEXT_LIMIT = 4
 
 function blockSeconds(block: ScheduleBlock): number {
   return Math.max(0, Math.round((new Date(block.endsAt).getTime() - new Date(block.startsAt).getTime()) / 1000))
@@ -101,18 +100,20 @@ function Row({
         {block.externalKey ? <span className="mono">{block.externalKey} </span> : null}
         {block.title}
       </span>
-      {project ? <span className="sched-deck-row-project">{project.name}</span> : null}
+      <span className="sched-deck-row-project">{project?.name}</span>
       <span className="sched-deck-row-span mono">{span(blockSeconds(block))}</span>
-      {block.late ? <span className="sched-chip late">late</span> : null}
-      <TaskTimer itemId={block.itemId} running={interval} prominent={startable} />
+      <span className="sched-deck-row-flag">{block.late ? <span className="sched-chip late">late</span> : null}</span>
+      <span className="sched-deck-row-timer">
+        <TaskTimer itemId={block.itemId} running={interval} prominent={startable} />
+      </span>
     </li>
   )
 }
 
-export function NowDeck({ pick, loading, running, lateCount, lateId, projectOf, titleOf, onOpen, onNextWeek }: Props) {
+export function NowDeck({ pick, loading, running, lateCount, lateId, projectOf, titleOf, showNext, onOpen, onNextWeek }: Props) {
   const featured = pick.current[0] ?? pick.upcoming[0]
   const alsoNow = pick.current.slice(1)
-  const next = pick.phase === 'now' ? pick.upcoming : pick.upcoming.slice(1)
+  const next = showNext ? (pick.phase === 'now' ? pick.upcoming : pick.upcoming.slice(1)) : []
   const planned = new Set([...pick.current.map((row) => row.itemId), featured?.itemId].filter(Boolean))
   const offPlan = running.filter((row) => !planned.has(row.itemId))
   const intervalOf = (itemId: string) => running.find((row) => row.itemId === itemId)
@@ -167,7 +168,7 @@ export function NowDeck({ pick, loading, running, lateCount, lateId, projectOf, 
           <>
             <p className="sched-deck-kicker">Up next</p>
             <ul className="sched-deck-list">
-              {next.slice(0, NEXT_LIMIT).map((row) => (
+              {next.map((row) => (
                 <Row
                   key={`${row.itemId}-${row.startsAt}`}
                   block={row}
@@ -178,7 +179,6 @@ export function NowDeck({ pick, loading, running, lateCount, lateId, projectOf, 
                 />
               ))}
             </ul>
-            {next.length > NEXT_LIMIT ? <p className="sched-deck-more">{next.length - NEXT_LIMIT} more today</p> : null}
           </>
         ) : null}
         {offPlan.map((row) => (

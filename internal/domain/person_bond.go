@@ -12,6 +12,7 @@ type BondKind string
 
 const (
 	BondKindAcquaintance BondKind = "acquaintance"
+	BondKindColleague    BondKind = "colleague"
 	BondKindComrade      BondKind = "comrade"
 	BondKindFriend       BondKind = "friend"
 	BondKindRelative     BondKind = "relative"
@@ -71,7 +72,7 @@ type BondChange struct {
 func ParseBondKind(raw string) (BondKind, error) {
 	kind := BondKind(strings.TrimSpace(raw))
 	switch kind {
-	case BondKindAcquaintance, BondKindComrade, BondKindFriend, BondKindRelative, BondKindSpouse, BondKindAdversary, BondKindOther:
+	case BondKindAcquaintance, BondKindColleague, BondKindComrade, BondKindFriend, BondKindRelative, BondKindSpouse, BondKindAdversary, BondKindOther:
 		return kind, nil
 	default:
 		return "", fmt.Errorf("%w: bond kind", ErrInvalid)

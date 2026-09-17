@@ -35,7 +35,7 @@ export type PersonRel = {
 
 export type ContactKind = 'phone' | 'telegram' | 'url'
 export type SiteKind = 'personal_site' | 'company_site' | 'github' | 'linkedin' | 'youtube' | 'telegram_channel' | 'other'
-export type BondKind = 'acquaintance' | 'comrade' | 'friend' | 'relative' | 'spouse' | 'adversary' | 'other'
+export type BondKind = 'acquaintance' | 'colleague' | 'comrade' | 'friend' | 'relative' | 'spouse' | 'adversary' | 'other'
 export type BondAction = 'open' | 'change' | 'end'
 
 export type PersonContact = {
@@ -331,6 +331,7 @@ export type ItemNote = {
   id: string
   itemId: string
   body: string
+  sourceKind: SourceKind
   createdAt: string
 }
 
@@ -482,6 +483,12 @@ export function kindLabel(kind: ItemKind): string {
 
 export function occupancyLabel(occupancy: Occupancy): string {
   return occupancy === 'parallel' ? 'Parallel' : 'Solo'
+}
+
+export function sourceKindLabel(kind: SourceKind): string {
+  if (kind === 'jira') return 'Jira'
+  if (kind === 'todoist') return 'Todoist'
+  return 'Manual'
 }
 
 const STATUS_LABELS: Record<ItemStatus, string> = {

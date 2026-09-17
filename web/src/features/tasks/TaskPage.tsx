@@ -9,6 +9,7 @@ import {
   KINDS,
   kindLabel,
   occupancyLabel,
+  sourceKindLabel,
   statusesForKind,
   statusLabel,
   type ItemKind,
@@ -660,7 +661,9 @@ export function TaskDossier({ id, onGone }: Props) {
           {log.length === 0 && !noteOpen ? <p className="muted">No notes yet.</p> : null}
           {log.map((note) => (
             <article key={note.id} className="tasks-note">
-              <p className="tasks-kicker">{noteStamp(note.createdAt)}</p>
+              <p className="tasks-kicker">
+                {noteStamp(note.createdAt)} - {sourceKindLabel(note.sourceKind)}
+              </p>
               <p>{note.body}</p>
             </article>
           ))}

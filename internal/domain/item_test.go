@@ -213,7 +213,23 @@ func TestItemRestoreClearsArchive(t *testing.T) {
 }
 
 func TestNewItemNoteRejectsEmptyBody(t *testing.T) {
-	if _, err := NewItemNote(uuid.New(), "  "); err == nil {
+	if _, err := NewItemNote(uuid.New(), "  ", SourceManual); err == nil {
 		t.Fatal("expected invalid body")
+	}
+}
+
+func TestNewItemNoteRejectsUnknownSourceKind(t *testing.T) {
+	if _, err := NewItemNote(uuid.New(), "shipped", SourceKind("slack")); err == nil {
+		t.Fatal("expected invalid source kind")
+	}
+}
+
+func TestNewItemNoteKeepsSourceKind(t *testing.T) {
+	note, err := NewItemNote(uuid.New(), "shipped", SourceJira)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note.SourceKind != SourceJira || note.Body != "shipped" {
+		t.Fatalf("got %+v", note)
 	}
 }
