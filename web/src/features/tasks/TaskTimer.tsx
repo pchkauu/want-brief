@@ -29,6 +29,8 @@ export function TaskTimer({ itemId, running, prominent }: Props) {
     },
   })
 
+  if (!running && !prominent) return null
+
   return (
     <div
       className="tasks-timer"

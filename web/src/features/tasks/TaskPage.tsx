@@ -2,7 +2,6 @@ import { ArrowCounterClockwise, ArrowsClockwise, ChatTeardrop, Clock, Copy, Paus
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
-import { DateField } from '../../shared/DateField'
 import { OpenUrl, UrlField } from '../../shared/UrlField'
 import { createdLabel, itemCost, liveTracked, span } from '../../shared/format'
 import { moscowRange } from '../../shared/moscow'
@@ -20,8 +19,10 @@ import {
 import { idsToRels, relIds } from '../people/RelationField'
 import { PeoplePicker } from '../people/PeoplePicker'
 import { TaskChecks } from './TaskChecks'
-import { TaskConfirm, TaskOverlay } from './TaskConfirm'
+import { TaskConfirm } from './TaskConfirm'
 import { TaskDueRail } from './TaskDueRail'
+import { TaskFlag } from './TaskFlag'
+import { TaskTimeLog } from './TaskTimeLog'
 import { useTaskLogPrompt } from './TaskLogPrompt'
 import { TaskSheet } from './TaskSheet'
 import { TaskTimer } from './TaskTimer'
@@ -68,12 +69,6 @@ function toLocalInput(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function todayDate(): string {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
 function secondsFor(rows: { itemId: string; allocatedSeconds: number }[] | undefined, id: string): number {
   return rows?.find((row) => row.itemId === id)?.allocatedSeconds ?? 0
 }
@@ -85,15 +80,6 @@ function projectSeconds(rows: { projectId: string | null; allocatedSeconds: numb
 
 function isoFromInput(raw: string): string {
   return new Date(raw).toISOString()
-}
-
-function logRange(date: string, seconds: number): { startedAt: string; endedAt: string } {
-  if (date === todayDate()) {
-    const ended = new Date()
-    return { startedAt: new Date(ended.getTime() - seconds * 1000).toISOString(), endedAt: ended.toISOString() }
-  }
-  const noon = new Date(`${date}T12:00:00`)
-  return { startedAt: new Date(noon.getTime() - seconds * 1000).toISOString(), endedAt: noon.toISOString() }
 }
 
 function FieldHint({ state, error }: { state: FieldState; error?: string }) {
@@ -112,7 +98,7 @@ export function TaskDossierSheet({ id, onClose }: { id: string; onClose: () => v
   const item = useQuery({ queryKey: ['items', id], queryFn: () => api.item(id), enabled: Boolean(id) })
   const title = item.isError ? 'Task not found' : item.data?.title || '…'
   return (
-    <TaskSheet open title={title} kicker="Task" onClose={onClose}>
+    <TaskSheet open wide title={title} kicker="Task" onClose={onClose}>
       <TaskDossier id={id} onGone={onClose} />
     </TaskSheet>
   )
@@ -153,9 +139,6 @@ export function TaskDossier({ id, onGone }: Props) {
   const [linkUrl, setLinkUrl] = useState('')
   const [linkOpen, setLinkOpen] = useState(false)
   const [slots, setSlots] = useState<Record<SlotLabel, string>>({ GitLab: '', Jira: '', Confluence: '' })
-  const [logDate, setLogDate] = useState(todayDate)
-  const [logHours, setLogHours] = useState('0')
-  const [logMinutes, setLogMinutes] = useState('0')
   const [fields, setFields] = useState<Record<string, { state: FieldState; error?: string }>>({})
   const [kindConfirm, setKindConfirm] = useState<ItemKind | null>(null)
   const [modal, setModal] = useState<'stall' | 'delete' | 'time' | null>(null)
@@ -235,20 +218,6 @@ export function TaskDossier({ id, onGone }: Props) {
       void queryClient.invalidateQueries({ queryKey: ['sources'] })
     },
     onError: (err) => mark('sync', 'error', err instanceof Error ? err.message : 'Could not sync.'),
-  })
-  const addTime = useMutation({
-    mutationFn: ({ startedAt, endedAt }: { startedAt: string; endedAt: string }) =>
-      api.logInterval(id, startedAt, endedAt),
-    onSuccess: () => {
-      setLogHours('0')
-      setLogMinutes('0')
-      setModal(null)
-      mark('time', 'saved')
-      void queryClient.invalidateQueries({ queryKey: ['intervals'] })
-      void queryClient.invalidateQueries({ queryKey: ['items'] })
-      void queryClient.invalidateQueries({ queryKey: ['load'] })
-    },
-    onError: (err) => mark('time', 'error', err instanceof Error ? err.message : 'Could not add time.'),
   })
   const remove = useMutation({
     mutationFn: () => api.deleteItem(id),
@@ -355,22 +324,6 @@ export function TaskDossier({ id, onGone }: Props) {
         },
       },
     )
-  }
-
-  function onAddTime(event: FormEvent) {
-    event.preventDefault()
-    const h = Number(logHours)
-    const m = Number(logMinutes)
-    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0 || m > 59) {
-      mark('time', 'error', 'Time is invalid.')
-      return
-    }
-    const seconds = Math.round(h) * 3600 + Math.round(m) * 60
-    if (seconds <= 0) {
-      mark('time', 'error', 'Time is required.')
-      return
-    }
-    addTime.mutate(logRange(logDate, seconds))
   }
 
   function applyStall() {
@@ -585,27 +538,24 @@ export function TaskDossier({ id, onGone }: Props) {
           onCommit={(key, raw) => saveDueField(raw, row[key], key)}
         />
         <div className="tasks-chips">
-          <button
-            type="button"
-            className={row.urgent ? 'chip on' : 'chip'}
+          <TaskFlag
+            glyph="🏃"
+            label="Urgent"
+            on={row.urgent}
             onClick={() => patch.mutate({ body: { urgent: !row.urgent }, field: 'urgent' })}
-          >
-            Urgent
-          </button>
-          <button
-            type="button"
-            className={row.important ? 'chip on' : 'chip'}
+          />
+          <TaskFlag
+            glyph="🔑"
+            label="Important"
+            on={row.important}
             onClick={() => patch.mutate({ body: { important: !row.important }, field: 'important' })}
-          >
-            Important
-          </button>
-          <button
-            type="button"
-            className={row.pinned ? 'chip on' : 'chip'}
+          />
+          <TaskFlag
+            glyph="📌"
+            label="Pin"
+            on={row.pinned}
             onClick={() => patch.mutate({ body: { pinned: !row.pinned }, field: 'pinned' })}
-          >
-            Pin
-          </button>
+          />
         </div>
         <TaskTimer itemId={row.id} running={running} prominent />
         <TaskChecks itemId={row.id} />
@@ -850,42 +800,7 @@ export function TaskDossier({ id, onGone }: Props) {
         onCancel={() => setModal(null)}
         onConfirm={() => remove.mutate()}
       />
-      <TaskOverlay open={modal === 'time'} onCancel={() => setModal(null)}>
-        <form className="tasks-confirm" onSubmit={onAddTime}>
-          <p className="tasks-kicker">Log time</p>
-          <h3>How long?</h3>
-          <label>
-            Date
-            <DateField mode="date" value={logDate} onChange={setLogDate} />
-          </label>
-          <div className="tasks-plan">
-            <label>
-              Hours
-              <input type="number" min={0} step={1} value={logHours} onChange={(e) => setLogHours(e.target.value)} />
-            </label>
-            <label>
-              Minutes
-              <input
-                type="number"
-                min={0}
-                max={59}
-                step={1}
-                value={logMinutes}
-                onChange={(e) => setLogMinutes(e.target.value)}
-              />
-            </label>
-          </div>
-          {hint('time')}
-          <div className="tasks-confirm-actions">
-            <button type="button" className="ghost" onClick={() => setModal(null)}>
-              Cancel
-            </button>
-            <button type="submit" disabled={addTime.isPending}>
-              Log time
-            </button>
-          </div>
-        </form>
-      </TaskOverlay>
+      <TaskTimeLog itemId={id} open={modal === 'time'} onClose={() => setModal(null)} />
     </div>
   )
 }

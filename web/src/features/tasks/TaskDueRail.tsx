@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import { DateField } from '../../shared/DateField'
-import { dueHeat, dueRemain } from '../../shared/format'
+import { createdLabel, dueHeat, dueRemain } from '../../shared/format'
 import type { Item } from '../../types'
 
 const slots = [
@@ -27,14 +27,40 @@ function isoOf(item: Item, key: DueKey): string | null {
 export function TaskDueRail({ item, values, onChange, onCommit, compact }: Props) {
   const [open, setOpen] = useState<DueKey | null>(null)
   const rows = item.kind === 'task' ? slots : slots.filter((slot) => slot.key === 'dueAt')
+  const visible = compact ? rows.filter((slot) => isoOf(item, slot.key)) : rows
+  if (compact && visible.length === 0) return null
+  if (compact) {
+    return (
+      <div className="tasks-due-lines">
+        {visible.map((slot) => {
+          const iso = isoOf(item, slot.key)
+          if (!iso) return null
+          const heat = dueHeat(iso, item.status)
+          const remain = dueRemain(iso)
+          const overdue = heat >= 1
+          const when = createdLabel(iso)
+          const text = [slot.label, when, remain].filter(Boolean).join(' · ')
+          return (
+            <p
+              key={slot.key}
+              className={overdue ? 'tasks-due-line overdue' : 'tasks-due-line'}
+              style={{ '--due-heat': heat } as CSSProperties}
+            >
+              {text}
+            </p>
+          )
+        })}
+      </div>
+    )
+  }
   return (
-    <div className={compact ? 'tasks-due-rail compact' : 'tasks-due-rail'}>
-      {rows.map((slot) => {
+    <div className="tasks-due-rail">
+      {visible.map((slot) => {
         const iso = isoOf(item, slot.key)
         const heat = dueHeat(iso, item.status)
         const remain = dueRemain(iso)
         const overdue = heat >= 1
-        const editing = !compact && open === slot.key
+        const editing = open === slot.key
         return (
           <article
             key={slot.key}
@@ -42,9 +68,7 @@ export function TaskDueRail({ item, values, onChange, onCommit, compact }: Props
             style={{ '--due-heat': heat } as CSSProperties}
           >
             <strong>{slot.label}</strong>
-            {compact ? (
-              <p className="tasks-due-remain">{remain || '—'}</p>
-            ) : editing ? (
+            {editing ? (
               <DateField
                 mode="datetime"
                 value={values?.[slot.key] ?? ''}
@@ -59,7 +83,7 @@ export function TaskDueRail({ item, values, onChange, onCommit, compact }: Props
                 {remain || 'Set date'}
               </button>
             )}
-            {!compact && (iso || values?.[slot.key]) ? (
+            {iso || values?.[slot.key] ? (
               <button
                 type="button"
                 className="ghost tasks-due-clear"

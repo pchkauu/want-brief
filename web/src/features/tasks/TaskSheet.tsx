@@ -6,6 +6,7 @@ type Props = {
   title: string
   kicker?: string
   onClose: () => void
+  wide?: boolean
   children: ReactNode
 }
 
@@ -25,7 +26,7 @@ function focusables(root: HTMLElement) {
   ].filter((node) => !node.closest('.tasks-sheet-back'))
 }
 
-export function TaskSheet({ open, title, kicker = 'New', onClose, children }: Props) {
+export function TaskSheet({ open, title, kicker = 'New', wide, onClose, children }: Props) {
   const dialog = useRef<HTMLElement>(null)
   const prior = useRef<HTMLElement | null>(null)
 
@@ -76,7 +77,7 @@ export function TaskSheet({ open, title, kicker = 'New', onClose, children }: Pr
       <button type="button" className="tasks-sheet-back" aria-label="Close" onClick={onClose} />
       <aside
         ref={dialog}
-        className="tasks-sheet"
+        className={wide ? 'tasks-sheet wide' : 'tasks-sheet'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tasks-sheet-title"

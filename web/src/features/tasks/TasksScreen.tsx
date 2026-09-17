@@ -1,11 +1,10 @@
 import { useCallback, useMemo, useState, type DragEvent, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../../api'
 import { dueWithinWeek, itemCost } from '../../shared/format'
 import { moscowRange } from '../../shared/moscow'
 import {
-  ITEM_STATUSES,
   KINDS,
   kindLabel,
   statusLabel,
@@ -17,14 +16,26 @@ import {
   type Project,
 } from '../../types'
 import { DRAG_TYPE, TaskCard, decodeTaskDrag } from './TaskCard'
+import { TaskFlag } from './TaskFlag'
 import { TaskLogProvider, useTaskLogPrompt } from './TaskLogPrompt'
 import { TaskDossierSheet } from './TaskPage'
 import { TaskSheet } from './TaskSheet'
+import { useTaskUndo } from './TaskUndo'
+import { sortColumn } from './sortColumn'
 
-function columnsFor(showDone: boolean): ItemStatus[] {
-  if (showDone) return ITEM_STATUSES
-  return ITEM_STATUSES.filter((status) => status !== 'done' && status !== 'cancelled')
-}
+const OPEN_COLUMNS: ItemStatus[] = [
+  'backlog',
+  'needs_grooming',
+  'to_do',
+  'in_progress',
+  'blocked',
+  'review',
+  'qa',
+  'awaiting_decision',
+  'release_candidate',
+]
+const DONE_COLUMNS: ItemStatus[] = ['done', 'cancelled']
+const WIP_LIMIT = 3
 
 function monthSeconds(rows: { itemId: string; allocatedSeconds: number }[] | undefined, id: string): number {
   return rows?.find((row) => row.itemId === id)?.allocatedSeconds ?? 0
@@ -48,6 +59,22 @@ function cardYield(item: Item, projects: Project[], load: LoadReport | undefined
   }
 }
 
+function emptyBuckets(): Record<ItemStatus, Item[]> {
+  return {
+    backlog: [],
+    needs_grooming: [],
+    to_do: [],
+    in_progress: [],
+    blocked: [],
+    review: [],
+    qa: [],
+    awaiting_decision: [],
+    release_candidate: [],
+    done: [],
+    cancelled: [],
+  }
+}
+
 export function TasksScreen() {
   return (
     <TaskLogProvider>
@@ -58,22 +85,28 @@ export function TasksScreen() {
 
 function TasksWorkspace() {
   const promptLog = useTaskLogPrompt()
+  const offerUndo = useTaskUndo()
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [params, setParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const closeDossier = useCallback(() => navigate('/tasks'), [navigate])
-  const [sourceId, setSourceId] = useState('')
-  const [projectId, setProjectId] = useState('')
-  const [kind, setKind] = useState<ItemKind | ''>('')
-  const [query, setQuery] = useState('')
-  const [showDone, setShowDone] = useState(false)
-  const [stall, setStall] = useState<'active' | 'stalled' | 'all'>('active')
-  const [onlyU, setOnlyU] = useState(false)
-  const [onlyI, setOnlyI] = useState(false)
-  const [urgentOnly, setUrgentOnly] = useState(false)
+  const query = params.get('q') ?? ''
+  const projectId = params.get('project') ?? ''
+  const sourceId = params.get('source') ?? ''
+  const kind = (params.get('kind') ?? '') as ItemKind | ''
+  const stall = (params.get('stall') as 'active' | 'stalled' | 'all') || 'active'
+  const onlyU = params.get('u') === '1'
+  const onlyI = params.get('i') === '1'
+  const week = params.get('week') === '1'
+  const showDone = params.get('done') === '1'
+  const closeDossier = useCallback(() => {
+    navigate({ pathname: '/tasks', search: location.search })
+  }, [navigate, location.search])
   const [open, setOpen] = useState(false)
   const [createStatus, setCreateStatus] = useState<ItemStatus>('backlog')
   const [dropStatus, setDropStatus] = useState<ItemStatus | null>(null)
+  const [dragging, setDragging] = useState<{ id: string; kind: ItemKind; status: ItemStatus } | null>(null)
   const [title, setTitle] = useState('')
   const [newKind, setNewKind] = useState<ItemKind>('task')
   const [formError, setFormError] = useState('')
@@ -112,19 +145,52 @@ function TasksWorkspace() {
       setOpen(false)
       setCreateStatus('backlog')
       void queryClient.invalidateQueries({ queryKey: ['items'] })
-      navigate(`/tasks/${item.id}`)
+      navigate({ pathname: `/tasks/${item.id}`, search: location.search })
     },
     onError: (err) => setFormError(err instanceof Error ? err.message : 'Could not add.'),
   })
   const move = useMutation({
-    mutationFn: ({ id: itemId, status }: { id: string; status: ItemStatus }) => api.patchItem(itemId, { status }),
+    mutationFn: ({ id: itemId, status }: { id: string; status: ItemStatus; previous: ItemStatus }) =>
+      api.patchItem(itemId, { status }),
     onSuccess: (_row, vars) => {
-      window.setTimeout(() => {
+      offerUndo('Status updated.', async () => {
+        await api.patchItem(vars.id, { status: vars.previous })
         void queryClient.invalidateQueries({ queryKey: ['items'] })
-        promptLog(vars.id)
-      }, 0)
+      })
+      if (vars.status === 'done' || vars.status === 'cancelled') promptLog(vars.id)
+      void queryClient.invalidateQueries({ queryKey: ['items'] })
     },
   })
+
+  function setFilter(key: string, value: string) {
+    const next = new URLSearchParams(params)
+    if (!value) next.delete(key)
+    else next.set(key, value)
+    setParams(next, { replace: true })
+  }
+
+  function setFlag(key: string, on: boolean) {
+    const next = new URLSearchParams(params)
+    if (on) next.set(key, '1')
+    else next.delete(key)
+    setParams(next, { replace: true })
+  }
+
+  function clearFilters() {
+    setParams(new URLSearchParams(), { replace: true })
+  }
+
+  const filterCount = [
+    query,
+    projectId,
+    sourceId,
+    kind,
+    stall !== 'active' ? stall : '',
+    onlyU ? '1' : '',
+    onlyI ? '1' : '',
+    week ? '1' : '',
+    showDone ? '1' : '',
+  ].filter(Boolean).length
 
   function openCreate(status: ItemStatus) {
     setCreateStatus(status)
@@ -150,18 +216,31 @@ function TasksWorkspace() {
 
   function onDragOver(status: ItemStatus, event: DragEvent) {
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
+    const kindNow = dragging?.kind
+    const allowed = !kindNow || statusesForKind(kindNow).includes(status)
+    event.dataTransfer.dropEffect = allowed ? 'move' : 'none'
     setDropStatus(status)
+  }
+
+  function applyMove(itemId: string, status: ItemStatus) {
+    const current = (items.data ?? []).find((item) => item.id === itemId)
+    if (!current || current.status === status) return
+    if (!statusesForKind(current.kind).includes(status)) return
+    move.mutate({ id: itemId, status, previous: current.status })
   }
 
   function onDrop(status: ItemStatus, event: DragEvent) {
     event.preventDefault()
     setDropStatus(null)
-    const payload = payloadFrom(event)
+    setDragging(null)
+    const payload = payloadFrom(event) ?? (dragging ? { id: dragging.id, kind: dragging.kind } : null)
     if (!payload || !statusesForKind(payload.kind).includes(status)) return
-    const current = (items.data ?? []).find((item) => item.id === payload.id)
-    if (current?.status === status) return
-    move.mutate({ id: payload.id, status })
+    applyMove(payload.id, status)
+  }
+
+  function clearDrag() {
+    setDropStatus(null)
+    setDragging(null)
   }
 
   const list = useMemo(() => {
@@ -171,77 +250,133 @@ function TasksWorkspace() {
       if (needle && !`${item.externalKey} ${item.title}`.toLowerCase().includes(needle)) return false
       if (onlyU && !item.urgent) return false
       if (onlyI && !item.important) return false
-      if (urgentOnly && !(item.urgent && item.important && dueWithinWeek(item.dueAt, now))) return false
+      if (
+        week &&
+        !['dueAt', 'devDueAt', 'reviewDueAt', 'testDueAt'].some((key) =>
+          dueWithinWeek(item[key as 'dueAt'], now),
+        )
+      )
+        return false
       return true
     })
-  }, [items.data, query, onlyU, onlyI, urgentOnly, intervals.dataUpdatedAt])
+  }, [items.data, query, onlyU, onlyI, week])
   const runningByItem = new Map((intervals.data ?? []).map((row) => [row.itemId, row]))
+  const visibleStatuses = showDone ? [...OPEN_COLUMNS, ...DONE_COLUMNS] : OPEN_COLUMNS
 
-  const columns = columnsFor(showDone)
   const grouped = useMemo(() => {
-    const buckets: Record<ItemStatus, Item[]> = {
-      backlog: [],
-      needs_grooming: [],
-      to_do: [],
-      in_progress: [],
-      blocked: [],
-      review: [],
-      qa: [],
-      awaiting_decision: [],
-      release_candidate: [],
-      done: [],
-      cancelled: [],
-    }
+    const buckets = emptyBuckets()
     for (const item of list) {
       buckets[item.status]?.push(item)
     }
     for (const status of Object.keys(buckets) as ItemStatus[]) {
-      buckets[status].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      buckets[status].sort(sortColumn)
     }
     return buckets
   }, [list])
 
   const createKinds = KINDS.filter((value) => statusesForKind(value).includes(createStatus))
   const projectList = projects.data ?? []
+  const showSkeleton = items.isLoading && !items.data
+  const noMatch = Boolean(items.data && list.length === 0 && filterCount > 0)
+
+  function renderColumn(status: ItemStatus, narrow = false) {
+    const rows = grouped[status]
+    const over = dropStatus === status && dragging
+    const allowed = !dragging || statusesForKind(dragging.kind).includes(status)
+    const blocked = Boolean(over && !allowed)
+    const dropping = Boolean(over && allowed && dragging && dragging.status !== status)
+    const wipWarn = status === 'in_progress' && rows.length >= WIP_LIMIT
+    const cls = ['tasks-col', narrow ? 'narrow' : '', blocked ? 'blocked' : '', dropping ? 'drop' : '']
+      .filter(Boolean)
+      .join(' ')
+    return (
+      <section
+        key={status}
+        className={cls}
+        onDragOver={(event) => onDragOver(status, event)}
+        onDrop={(event) => onDrop(status, event)}
+      >
+        <header className="tasks-col-head">
+          <h2>
+            {statusLabel(status)} <span className={wipWarn ? 'warn' : undefined}>{rows.length}</span>
+          </h2>
+          <button
+            type="button"
+            className="tasks-plus"
+            aria-label={`Add to ${statusLabel(status)}`}
+            onClick={() => openCreate(status)}
+          >
+            +
+          </button>
+        </header>
+        {rows.map((item) => {
+          const yieldRow = cardYield(item, projectList, monthLoad.data)
+          return (
+            <TaskCard
+              key={item.id}
+              item={item}
+              selected={item.id === id}
+              running={runningByItem.get(item.id)}
+              yieldUsd={yieldRow?.usd}
+              yieldRub={yieldRow?.rub}
+              visibleStatuses={visibleStatuses}
+              onDragBegin={(row) => setDragging({ id: row.id, kind: row.kind, status: row.status })}
+              onMove={applyMove}
+            />
+          )
+        })}
+        {dropping ? <div className="tasks-col-ghost" aria-hidden /> : null}
+        {rows.length === 0 && !dropping ? <p className="tasks-col-empty">Drop tasks here</p> : null}
+        {blocked ? <p className="tasks-col-blocked">Not for this type</p> : null}
+      </section>
+    )
+  }
 
   return (
     <div className="tasks">
       <header className="tasks-bar">
-        <h1>Task</h1>
+        <h1>
+          Tasks <span className="tasks-count">{list.length}</span>
+        </h1>
         <label className="tasks-search">
           Search
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => setFilter('q', e.target.value)}
             placeholder="Title or key"
             autoComplete="off"
           />
         </label>
         <label className="tasks-toggle">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
+          <input type="checkbox" checked={showDone} onChange={(e) => setFlag('done', e.target.checked)} />
           Show done
         </label>
         <label className="tasks-toggle">
           Stall
-          <select value={stall} onChange={(e) => setStall(e.target.value as 'active' | 'stalled' | 'all')} aria-label="Stall filter">
+          <select
+            value={stall}
+            onChange={(e) => setFilter('stall', e.target.value === 'active' ? '' : e.target.value)}
+            aria-label="Stall filter"
+          >
             <option value="active">Active</option>
             <option value="stalled">Stalled</option>
             <option value="all">All</option>
           </select>
         </label>
         <div className="tasks-chips">
-          <button type="button" className={onlyU ? 'chip on' : 'chip'} onClick={() => setOnlyU((on) => !on)}>
-            U
+          <TaskFlag glyph="🏃" label="Urgent" on={onlyU} onClick={() => setFlag('u', !onlyU)} />
+          <TaskFlag glyph="🔑" label="Important" on={onlyI} onClick={() => setFlag('i', !onlyI)} />
+          <button type="button" className={week ? 'chip on' : 'chip'} onClick={() => setFlag('week', !week)}>
+            Due this week
           </button>
-          <button type="button" className={onlyI ? 'chip on' : 'chip'} onClick={() => setOnlyI((on) => !on)}>
-            I
-          </button>
-          <button type="button" className={urgentOnly ? 'chip on' : 'chip'} onClick={() => setUrgentOnly((on) => !on)}>
-            Urgent
-          </button>
+          {filterCount > 0 ? (
+            <button type="button" className="chip" onClick={clearFilters}>
+              {filterCount} filters · Clear
+            </button>
+          ) : null}
         </div>
         <div className="tasks-filters">
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
+          <select value={projectId} onChange={(e) => setFilter('project', e.target.value)} aria-label="Project">
             <option value="">All projects</option>
             {projectList.map((project) => (
               <option key={project.id} value={project.id}>
@@ -249,7 +384,7 @@ function TasksWorkspace() {
               </option>
             ))}
           </select>
-          <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} aria-label="Source">
+          <select value={sourceId} onChange={(e) => setFilter('source', e.target.value)} aria-label="Source">
             <option value="">All sources</option>
             {(sources.data ?? []).map((source) => (
               <option key={source.id} value={source.id}>
@@ -257,7 +392,7 @@ function TasksWorkspace() {
               </option>
             ))}
           </select>
-          <select value={kind} onChange={(e) => setKind(e.target.value as ItemKind | '')} aria-label="Type">
+          <select value={kind} onChange={(e) => setFilter('kind', e.target.value)} aria-label="Type">
             <option value="">All types</option>
             {KINDS.map((value) => (
               <option key={value} value={value}>
@@ -266,48 +401,31 @@ function TasksWorkspace() {
             ))}
           </select>
         </div>
-        <button type="button" className="tasks-plus" aria-label="Add task" onClick={() => openCreate('backlog')}>
-          +
+        <button type="button" className="tasks-add" onClick={() => openCreate('backlog')}>
+          Add task
         </button>
       </header>
-      {items.isLoading ? <p className="muted">Loading…</p> : null}
       {items.isError ? <p className="error">{items.error.message}</p> : null}
-      {!items.isLoading && !items.isError ? (
-        <div className="tasks-kanban" onDragEnd={() => setDropStatus(null)}>
-          {columns.map((status) => (
-            <section
-              key={status}
-              className={dropStatus === status ? 'tasks-col drop' : 'tasks-col'}
-              onDragOver={(event) => onDragOver(status, event)}
-              onDrop={(event) => onDrop(status, event)}
-            >
-              <header className="tasks-col-head">
-                <h2>
-                  {statusLabel(status)} <span>{grouped[status].length}</span>
-                </h2>
-                <button
-                  type="button"
-                  className="tasks-plus"
-                  aria-label={`Add to ${statusLabel(status)}`}
-                  onClick={() => openCreate(status)}
-                >
-                  +
-                </button>
-              </header>
-              {grouped[status].map((item) => {
-                const yieldRow = cardYield(item, projectList, monthLoad.data)
-                return (
-                  <TaskCard
-                    key={item.id}
-                    item={item}
-                    running={runningByItem.get(item.id)}
-                    yieldUsd={yieldRow?.usd}
-                    yieldRub={yieldRow?.rub}
-                  />
-                )
-              })}
-            </section>
+      {noMatch ? (
+        <p className="tasks-empty-match">
+          No tasks match{query ? ` “${query}”` : ''}.{' '}
+          <button type="button" className="ghost" onClick={clearFilters}>
+            Reset filters
+          </button>
+        </p>
+      ) : null}
+      {showSkeleton ? (
+        <div className="tasks-kanban" aria-hidden>
+          {OPEN_COLUMNS.map((status) => (
+            <div key={status} className="tasks-skel-col" />
           ))}
+        </div>
+      ) : items.data || !items.isError ? (
+        <div className="tasks-board" onDragEnd={clearDrag}>
+          <div className="tasks-kanban-wrap">
+            <div className="tasks-kanban">{OPEN_COLUMNS.map((status) => renderColumn(status))}</div>
+          </div>
+          {showDone ? <div className="tasks-done-stack">{DONE_COLUMNS.map((status) => renderColumn(status, true))}</div> : null}
         </div>
       ) : null}
       <TaskSheet
