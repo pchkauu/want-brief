@@ -341,6 +341,9 @@ func (s *Service) SyncItem(ctx context.Context, id uuid.UUID) (domain.Item, erro
 		return domain.Item{}, err
 	}
 	item.ExternalStatus = strings.TrimSpace(remote.ExternalStatus)
+	if title := strings.TrimSpace(remote.Title); title != "" {
+		item.Title = title
+	}
 	if desc := strings.TrimSpace(remote.Description); desc != "" {
 		item.Description = desc
 	}
@@ -372,4 +375,26 @@ func (s *Service) SyncItem(ctx context.Context, id uuid.UUID) (domain.Item, erro
 		seen[body] = true
 	}
 	return s.GetItem(ctx, updated.ID)
+}
+
+func (s *Service) SyncActiveItems(ctx context.Context) (int, int, error) {
+	items, err := s.ListItems(ctx, domain.ItemFilter{OpenOnly: true})
+	if err != nil {
+		return 0, 0, err
+	}
+	var synced, failed int
+	for _, item := range items {
+		if item.SourceKind != domain.SourceJira && item.SourceKind != domain.SourceTodoist {
+			continue
+		}
+		if strings.TrimSpace(item.ExternalKey) == "" {
+			continue
+		}
+		if _, err := s.SyncItem(ctx, item.ID); err != nil {
+			failed++
+			continue
+		}
+		synced++
+	}
+	return synced, failed, nil
 }

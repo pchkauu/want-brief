@@ -21,12 +21,12 @@ import { CheckinDialog } from '../features/today/CheckinDialog'
 
 const links: { to: string; label: string; Icon: Icon }[] = [
   { to: '/today', label: 'Today', Icon: Sun },
+  { to: '/tasks', label: 'Tasks', Icon: CheckSquare },
   { to: '/events', label: 'Events', Icon: CalendarBlank },
   { to: '/schedule', label: 'Schedule', Icon: CalendarDots },
+  { to: '/matrix', label: 'Priorities', Icon: GridFour },
   { to: '/projects', label: 'Projects', Icon: SquaresFour },
   { to: '/people', label: 'People', Icon: Users },
-  { to: '/tasks', label: 'Tasks', Icon: CheckSquare },
-  { to: '/matrix', label: 'Priorities', Icon: GridFour },
   { to: '/pulse', label: 'Pulse', Icon: ChartBar },
   { to: '/settings', label: 'Sources', Icon: Plugs },
 ]

@@ -564,7 +564,7 @@ func (s *Store) UpsertSynced(ctx context.Context, item domain.Item) (domain.Item
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (source_id, external_key) WHERE external_key <> ''
 		DO UPDATE SET
-			title = EXCLUDED.title,
+			title = CASE WHEN btrim(EXCLUDED.title) = '' THEN items.title ELSE EXCLUDED.title END,
 			due_at = EXCLUDED.due_at,
 			project_id = EXCLUDED.project_id,
 			links = EXCLUDED.links,

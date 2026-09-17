@@ -123,6 +123,8 @@ export const api = {
   deleteItemCheck: (id: string, checkId: string) =>
     request(`/api/items/${id}/checks/${checkId}`, { method: 'DELETE' }),
   syncItem: (id: string) => request<Item>(`/api/items/${id}/sync`, { method: 'POST' }),
+  syncActiveItems: () =>
+    request<{ synced: number; failed: number }>('/api/items/sync-active', { method: 'POST' }),
   notes: (itemId?: string) => {
     const suffix = itemId ? `?itemId=${itemId}` : ''
     return request<Note[]>(`/api/notes${suffix}`)

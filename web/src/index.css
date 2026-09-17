@@ -926,6 +926,16 @@ a.matrix-cell:hover { background: var(--bg-3); }
   padding: 8px 14px;
   border-radius: 999px;
 }
+.tasks-sync {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0.7rem;
+  display: grid;
+  place-items: center;
+}
 .tasks-chips .chip,
 .tasks-card-flags .chip {
   min-width: 0;

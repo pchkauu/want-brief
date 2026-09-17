@@ -54,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/items/{id}/checks", s.withAuth(s.createItemCheck))
 	mux.HandleFunc("PATCH /api/items/{id}/checks/{checkId}", s.withAuth(s.patchItemCheck))
 	mux.HandleFunc("DELETE /api/items/{id}/checks/{checkId}", s.withAuth(s.deleteItemCheck))
+	mux.HandleFunc("POST /api/items/sync-active", s.withAuth(s.syncActiveItems))
 	mux.HandleFunc("POST /api/items/{id}/sync", s.withAuth(s.syncItem))
 
 	mux.HandleFunc("GET /api/notes", s.withAuth(s.listNotes))
@@ -780,6 +781,15 @@ func (s *Server) syncItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) syncActiveItems(w http.ResponseWriter, r *http.Request) {
+	synced, failed, err := s.App.SyncActiveItems(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"synced": synced, "failed": failed})
 }
 
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {

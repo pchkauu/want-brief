@@ -1,3 +1,4 @@
+import { ArrowsClockwise } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState, type DragEvent, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -148,6 +149,12 @@ function TasksWorkspace() {
       navigate({ pathname: `/tasks/${item.id}`, search: location.search })
     },
     onError: (err) => setFormError(err instanceof Error ? err.message : 'Could not add.'),
+  })
+  const syncActive = useMutation({
+    mutationFn: () => api.syncActiveItems(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['items'] })
+    },
   })
   const move = useMutation({
     mutationFn: ({ id: itemId, status }: { id: string; status: ItemStatus; previous: ItemStatus }) =>
@@ -401,11 +408,24 @@ function TasksWorkspace() {
             ))}
           </select>
         </div>
+        <button
+          type="button"
+          className="ghost tasks-sync"
+          title="Sync active"
+          aria-label="Sync active"
+          disabled={syncActive.isPending}
+          onClick={() => syncActive.mutate()}
+        >
+          <ArrowsClockwise size={18} weight="light" />
+        </button>
         <button type="button" className="tasks-add" onClick={() => openCreate('backlog')}>
           Add task
         </button>
       </header>
       {items.isError ? <p className="error">{items.error.message}</p> : null}
+      {syncActive.isError ? (
+        <p className="error">{syncActive.error instanceof Error ? syncActive.error.message : 'Could not sync.'}</p>
+      ) : null}
       {noMatch ? (
         <p className="tasks-empty-match">
           No tasks match{query ? ` “${query}”` : ''}.{' '}

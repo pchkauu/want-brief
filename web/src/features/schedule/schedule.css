@@ -11,6 +11,24 @@
   overflow: hidden;
 }
 
+.sched-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem 0.7rem;
+}
+.sched-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.sched-pack-hint {
+  margin: 0;
+  padding-left: 0.35rem;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
 .sched-tabs {
   display: flex;
   gap: 0.15rem;
@@ -60,29 +78,40 @@
   min-width: 0;
   min-height: 0;
   display: flex;
-  animation: sched-up 700ms var(--motion) both;
 }
 .sched-gantt-core {
+  --sched-hour: 48px;
+  --sched-cols: repeat(7, minmax(4.4rem, 1fr));
   min-width: 0;
   min-height: 0;
   flex: 1;
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 1rem 1.05rem 1.15rem;
+  padding: 1rem 1.05rem 1.35rem;
   border-radius: calc(1.45rem - 5px);
   background: #12141b;
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.14);
 }
 
-.sched-head {
+.sched-week-range {
+  margin: 0 0 0.45rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sched-head,
+.sched-lane {
   display: grid;
-  grid-template-columns: 7.2rem repeat(7, minmax(4.4rem, 1fr));
+  grid-template-columns: var(--sched-cols);
   gap: 0.35rem;
+}
+.sched-head {
   position: sticky;
   top: 0;
   z-index: 2;
   background: #12141b;
-  padding-bottom: 0.55rem;
+  padding-bottom: 0.7rem;
 }
 .sched-head-day {
   display: flex;
@@ -92,73 +121,110 @@
   color: var(--muted);
 }
 .sched-head-day small {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-weight: 500;
 }
-.sched-head-day strong { font-size: 1.05rem; }
+.sched-head-day strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.sched-head-day em {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent-2);
+}
 .sched-head-day.today strong { color: var(--accent-2); }
+.sched-head-day.weekend { opacity: 0.38; }
 
 .sched-lane {
-  display: grid;
-  grid-template-columns: 7.2rem repeat(7, minmax(4.4rem, 1fr));
-  gap: 0.35rem;
-  margin-bottom: 0.55rem;
-  animation: sched-up 700ms var(--motion) both;
-  animation-delay: calc(var(--d, 0) * 80ms);
+  grid-template-rows: auto 1fr;
+  margin-bottom: 0.85rem;
 }
-.sched-lane-meta {
+.sched-lane-name {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.45rem;
   min-width: 0;
-  padding: 0.35rem 0.4rem 0.4rem 0.25rem;
-  border-radius: 0.85rem;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 0.15rem 0.1rem 0.2rem;
 }
 .sched-swatch {
-  width: 4px;
-  height: 1.1rem;
-  border-radius: 99px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
 }
-.sched-lane-meta strong {
-  font-size: 12.5px;
+.sched-lane-name strong {
+  font-size: 13px;
   line-height: 1.2;
+  font-weight: 600;
 }
+
 .sched-hours {
   list-style: none;
   margin: 0;
   padding: 0;
+  position: absolute;
+  left: 0.12rem;
+  top: 0;
+  z-index: 3;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
-  height: 286px;
-  font-size: 9px;
+  height: calc(11 * var(--sched-hour));
+  font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .sched-hours li {
-  height: 26px;
-  line-height: 26px;
-  opacity: 0.7;
+  height: var(--sched-hour);
+  line-height: var(--sched-hour);
+  opacity: 0.78;
 }
 
 .sched-day {
   position: relative;
-  border-radius: 0.75rem;
+  border-radius: 0.85rem;
   background-image: repeating-linear-gradient(
     to bottom,
     rgba(255, 255, 255, 0.045) 0,
     rgba(255, 255, 255, 0.045) 1px,
     transparent 1px,
-    transparent 26px
+    transparent var(--sched-hour)
   );
   background-color: rgba(255, 255, 255, 0.02);
 }
+.sched-day.today {
+  background-color: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, 0.03));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.sched-day.weekend {
+  background-color: rgba(255, 255, 255, 0.008);
+  opacity: 0.72;
+}
+.sched-noslot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 42%;
+  margin: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.sched-day.today .sched-noslot { left: 1.7rem; }
 
 .sched-busy {
   position: absolute;
   left: 0;
   right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  padding: 0.15rem 0.4rem;
   background: repeating-linear-gradient(
     -55deg,
     rgba(167, 159, 255, 0.14),
@@ -168,21 +234,46 @@
   );
   pointer-events: none;
   border: 0;
-  padding: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  z-index: 0;
 }
-.sched-busy.tap {
+.sched-busy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-busy.meeting {
   pointer-events: auto;
   cursor: pointer;
 }
+.sched-day.today .sched-busy { left: 1.7rem; }
 .sched-now {
   position: absolute;
   left: 0;
   right: 0;
   height: 2px;
   background: var(--danger);
-  z-index: 2;
+  z-index: 4;
   pointer-events: none;
   box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 60%, transparent);
+}
+.sched-day.today .sched-now { left: 1.7rem; }
+.sched-now span {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.2rem;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--danger);
+  white-space: nowrap;
+}
+.sched-now.below span {
+  bottom: auto;
+  top: 0.2rem;
 }
 
 .sched-block {
@@ -193,46 +284,112 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 0.1rem;
+  gap: 0.12rem;
   overflow: hidden;
-  padding: 0.28rem 0.4rem;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 0.35rem 0.45rem 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
   color: var(--ink);
   text-align: left;
-  min-height: 0;
+  min-height: 2.1rem;
+  cursor: pointer;
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.16);
-  transition: transform 420ms var(--motion), opacity 420ms var(--motion);
+  transition: border-color 280ms var(--motion), background 280ms var(--motion);
+}
+.sched-day.today .sched-block {
+  left: 1.85rem;
+  right: 3px;
 }
 .sched-block:hover,
 .sched-block:focus-visible {
-  transform: scale(0.98);
+  border-color: color-mix(in srgb, var(--accent-2) 70%, transparent);
 }
-.sched-block:active { transform: scale(0.96); }
-.sched-block span { font-size: 10px; color: var(--muted); }
-.sched-block strong {
-  font-size: 11.5px;
+.sched-block:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.sched-block-line {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  padding-right: 1.6rem;
+}
+.sched-block-line strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sched-block.short .sched-block-line strong {
+  -webkit-line-clamp: 1;
+}
+.sched-block .mono {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sched-block-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+.sched-chip {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+.sched-chip.late {
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
+  color: var(--danger);
+}
+.sched-chip.live {
+  background: color-mix(in srgb, var(--accent-2) 28%, transparent);
+  color: var(--accent-2);
+}
+.sched-chip.more {
+  position: absolute;
+  top: 0.28rem;
+  right: 0.3rem;
+  z-index: 3;
+  cursor: pointer;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.14);
 }
 .sched-block.late {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 70%, transparent),
-    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
 }
 .sched-block.continued {
   border-top-left-radius: 4px;
   border-top-right-radius: 4px;
 }
-.sched-block.running {
-  outline: 1px solid var(--accent-2);
+.sched-block.continues {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
+.sched-block.running {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-2) 70%, transparent);
+}
+
 .sched-pressure {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin: 0 0 0.75rem;
+  gap: 0.45rem;
+  margin: 0 0 0.85rem;
 }
 .sched-cap {
+  display: flex;
   height: 6px;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.08);
@@ -241,16 +398,65 @@
 .sched-cap i {
   display: block;
   height: 100%;
+}
+.sched-cap i.packed {
   background: var(--accent);
-  border-radius: inherit;
+}
+.sched-cap i.over {
+  background: var(--danger);
 }
 .sched-cap-meta,
-.sched-overflow {
+.sched-overflow,
+.sched-readonly {
   margin: 0;
   font-size: 11px;
   color: var(--muted);
 }
-.sched-overflow { color: var(--danger); }
+.sched-overflow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--danger);
+}
+.sched-overflow .ghost {
+  min-height: 1.7rem;
+  padding: 0 0.7rem;
+  font-size: 11px;
+}
+.sched-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 10px;
+  color: var(--muted);
+}
+.sched-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.sched-legend li::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+.sched-legend .late::before {
+  background: color-mix(in srgb, var(--danger) 80%, transparent);
+}
+.sched-legend .live::before {
+  background: var(--accent-2);
+}
+.sched-legend .parallel::before {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.sched-readonly {
+  margin-top: 0.65rem;
+}
 .sched-need-chips {
   display: flex;
   flex-wrap: wrap;
@@ -264,14 +470,17 @@
 }
 
 .sched-empty {
-  margin: 0.75rem 0 0 7.2rem;
+  margin: 0.75rem 0 0;
 }
 .sched-lane-empty {
   margin-bottom: 0.15rem;
 }
-.sched-lane-empty .sched-lane-meta {
-  background: transparent;
+.sched-skel .sched-head-day,
+.sched-skel .sched-day {
+  background: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  min-height: 2.4rem;
 }
+.sched-skel .sched-day { min-height: calc(11 * var(--sched-hour)); }
 
 .sched-needs {
   display: flex;
@@ -293,8 +502,6 @@
   border-radius: 1.45rem;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  animation: sched-up 700ms var(--motion) both;
-  animation-delay: calc(var(--d, 0) * 80ms);
 }
 .sched-need-core {
   display: flex;
@@ -323,11 +530,6 @@
   margin: 0;
 }
 
-@keyframes sched-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @media (max-width: 767px) {
   .sched-window .window-body { overflow: auto; }
   .sched-split {
@@ -342,11 +544,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sched-gantt,
-  .sched-lane,
-  .sched-need,
   .sched-block {
-    animation: none;
     transition: none;
   }
 }
